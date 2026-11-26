@@ -4,7 +4,7 @@
 
 ReKey explores a safer recovery model combining device-bound passkeys, trusted guardians and Solana program-enforced authority changes.
 
-> **Prototype status:** The current Render app has a live Devnet wallet-connection dashboard and a browser-only recovery-flow simulation. The Anchor program now contains the first on-chain milestone: wallet/vault initialization, guardian policy management, recovery requests, threshold approvals, owner cancellation, timelock enforcement, expiry and SOL withdrawals. It has not yet been compiled with the Solana SBF toolchain, deployed to Devnet, or independently audited. Do not use real funds.
+> **Prototype status:** The current Render app has a live Devnet wallet-connection dashboard and a browser-only recovery-flow simulation. The Anchor program now contains the first on-chain milestone: wallet/vault initialization, guardian policy management, recovery requests, threshold approvals, owner cancellation, timelock enforcement, expiry and SOL withdrawals. The program is undergoing CI compilation checks; it has not yet been SBF-built, deployed to Devnet, or independently audited. Do not use real funds.
 
 ## Current implementation
 
@@ -13,7 +13,7 @@ ReKey explores a safer recovery model combining device-bound passkeys, trusted g
 - Recovery and guardian experience prototype
 - Anchor program source for the first smart-wallet/recovery flow
 - Explicit simulation labels to distinguish UI state from on-chain state
-- GitHub Actions checks for frontend build and Rust formatting/compilation
+- GitHub Actions checks for frontend build and Rust compilation
 
 ## Run the frontend
 
