@@ -38,3 +38,5 @@ jobs:
         run: cargo fmt --all
       - name: Compile program crate
         run: cargo check --manifest-path programs/rekey/Cargo.toml
+      - name: Run policy unit tests
+        run: cargo test --manifest-path programs/rekey/Cargo.toml

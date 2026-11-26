@@ -11,7 +11,7 @@ Reviewed on 26 November 2026 using the official Dev3pack hackathon site, its FAQ
 - Best mobile app track: Solana Mobile / Seeker phones.
 - The Bridge Accelerator is listed as starting 7 December.
 
-Confirm exact submission requirements and cutoff in the participant dashboard. The public FAQ scrape exposed category headings but not expanded answers, so do not infer rules about existing code, open-source requirements or AI-generated code.
+Confirm exact submission requirements and cutoff in the participant dashboard. The public FAQ scrape exposed category headings but not expanded answers, so do not infer rules about existing code, open-source requirements or AI-generated code. The app.dev3pack.xyz participant area requires sign-in, so its private resource catalogue was not accessible to the crawler.
 
 ## Resources and decisions
 
@@ -21,6 +21,8 @@ Confirm exact submission requirements and cutoff in the participant dashboard. T
 | [Solana Rust Bootcamp](https://www.dev3pack.xyz/programs/solana) | Dev3pack's free beginner Rust/Solana program covering accounts, PDAs, CPI and Anchor | Follow its account/PDA/Anchor progression; deploy to localnet/Devnet |
 | [Solana developer bootcamp videos](https://solana.com/developers/docs/video-guides/2026-developer-bootcamp) | Official video curriculum | Reference for Solana program concepts |
 | [Solana templates](https://solana.com/developers/templates) | Starter apps for Next.js, mobile and programs | Compare starter patterns before adding dependencies |
+| [Solana signature verification precompiles](https://solana.com/docs/core/programs/precompiles) | Native Ed25519, secp256k1 and secp256r1 verification | Future passkey verification research; secp256r1 precompile cannot be called via CPI |
+| [Solana signing in production](https://solana.com/docs/core/transactions/signing-in-production) | Key custody and production signing practices | Never place deployment or user keypairs in the app or repository |
 | [Solana Mobile](https://solanamobile.com/) | Mobile wallet and Seeker ecosystem | Potential later mobile wallet integration; not in MVP |
 | [Firecrawl](https://www.firecrawl.dev/) | Hackathon sponsor; crawl/extract web content | Used to inspect official hackathon and resource pages; not required in runtime |
 | [Supabase](https://supabase.com/) | Hackathon sponsor; hosted database/auth/storage | Optional later notification/indexing service; no custody or authorization |
@@ -44,3 +46,5 @@ Confirm exact submission requirements and cutoff in the participant dashboard. T
 - https://solana.com/developers
 - https://solana.com/developers/docs/video-guides/2026-developer-bootcamp
 - https://solana.com/developers/templates
+- https://solana.com/docs/core/programs/precompiles
+- https://solana.com/docs/core/transactions/signing-in-production

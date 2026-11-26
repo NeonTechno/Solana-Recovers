@@ -615,3 +615,49 @@ pub enum RecoveryError {
     #[msg("Arithmetic overflow.")]
     ArithmeticOverflow,
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(seed: u8) -> Pubkey {
+        Pubkey::new_from_array([seed; 32])
+    }
+
+    #[test]
+    fn accepts_two_of_three_guardian_policy() {
+        let guardians = vec![key(2), key(3), key(4)];
+        assert!(validate_policy(&guardians, 2, 24 * 60 * 60, key(1)).is_ok());
+    }
+
+    #[test]
+    fn rejects_empty_guardian_set() {
+        assert!(validate_policy(&[], 1, 24 * 60 * 60, key(1)).is_err());
+    }
+
+    #[test]
+    fn rejects_duplicate_guardians() {
+        let guardians = vec![key(2), key(2), key(3)];
+        assert!(validate_policy(&guardians, 2, 24 * 60 * 60, key(1)).is_err());
+    }
+
+    #[test]
+    fn rejects_owner_as_guardian() {
+        let guardians = vec![key(1), key(3)];
+        assert!(validate_policy(&guardians, 1, 24 * 60 * 60, key(1)).is_err());
+    }
+
+    #[test]
+    fn rejects_threshold_above_guardian_count() {
+        let guardians = vec![key(2), key(3)];
+        assert!(validate_policy(&guardians, 3, 24 * 60 * 60, key(1)).is_err());
+    }
+
+    #[test]
+    fn rejects_timelock_outside_policy_bounds() {
+        let guardians = vec![key(2), key(3)];
+        assert!(validate_policy(&guardians, 2, 30, key(1)).is_err());
+        assert!(validate_policy(&guardians, 2, 31 * 24 * 60 * 60, key(1)).is_err());
+    }
+}

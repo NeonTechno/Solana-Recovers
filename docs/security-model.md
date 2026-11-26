@@ -12,6 +12,10 @@
 - Updating the guardian policy increments the policy version, invalidating older requests.
 - Only the current owner can withdraw SOL from the vault.
 
+## Unit-test coverage
+
+The current Rust unit tests cover valid 2-of-3 policy configuration, empty and duplicate guardian sets, owner/guardian collision, invalid thresholds and invalid timelock bounds. They do not yet test account constraints or transaction state transitions on a validator.
+
 ## Remaining security work
 
 1. Add integration tests for every success and failure transition.
@@ -22,6 +26,10 @@
 6. Review account closure, rent reclamation and denial-of-service cases.
 7. Review upgrade authority and migrate it to a multisig before mainnet.
 8. Obtain an independent security audit before supporting valuable assets.
+
+## Dependency audit note
+
+The current npm dependency tree reports 15 moderate advisories in transitive dependencies including `stream-json` and `uuid`, reached through `@solana/web3.js` / wallet-adapter and Solflare packages. The npm audit gate currently fails on high severity and passes; npm reports no available fix for the identified moderate advisory chain. Reassess the wallet SDK stack before production use.
 
 ## Threats and controls
 
@@ -38,7 +46,7 @@
 
 ## Passkeys
 
-A WebAuthn response is not valid merely because the browser says authentication succeeded. The program integration must verify the challenge, origin/RP ID, authenticator data, signature, credential identity and replay protections. Evaluate Solana's secp256r1 signature verification precompile; it cannot be invoked through CPI, so transaction composition must be designed around that constraint.
+A WebAuthn response is not valid merely because the browser says authentication succeeded. The program integration must verify the challenge, origin/RP ID, authenticator data, signature, credential identity and replay protections. Solana's secp256r1 precompile can verify passkey signatures natively but cannot be called via CPI; transaction composition must be designed around that constraint.
 
 ## Deployment gates
 
