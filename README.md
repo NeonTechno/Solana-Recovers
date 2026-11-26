@@ -4,28 +4,18 @@
 
 ReKey explores a safer recovery model combining device-bound passkeys, trusted guardians and Solana program-enforced authority changes.
 
-> **Prototype status:** This repository currently contains a live Devnet wallet-connection dashboard and a browser-only recovery-flow simulation. The Anchor recovery program is not yet implemented or deployed. No recovery action in the current UI changes wallet authority or moves assets.
+> **Prototype status:** The current Render app has a live Devnet wallet-connection dashboard and a browser-only recovery-flow simulation. The Anchor program now contains the first on-chain milestone: wallet/vault initialization, guardian policy management, recovery requests, threshold approvals, owner cancellation, timelock enforcement, expiry and SOL withdrawals. It has not yet been compiled with the Solana SBF toolchain, deployed to Devnet, or independently audited. Do not use real funds.
 
 ## Current implementation
 
 - Phantom and Solflare wallet connection on Solana Devnet
-- Live Devnet SOL balance lookup
-- Devnet airdrop request
+- Live Devnet SOL balance lookup and airdrop request
 - Recovery and guardian experience prototype
+- Anchor program source for the first smart-wallet/recovery flow
 - Explicit simulation labels to distinguish UI state from on-chain state
+- GitHub Actions checks for frontend build and Rust formatting/compilation
 
-## Proposed protocol
-
-1. A user creates or migrates assets into a program-controlled smart wallet.
-2. The user registers a passkey and a guardian set.
-3. A recovery request binds a new owner public key, nonce and expiry.
-4. A configurable guardian threshold approves the exact request.
-5. A timelock allows the current owner to cancel.
-6. The Solana program validates the approvals and changes the wallet authority.
-
-Guardians authorize recovery; they must never receive spending authority.
-
-## Run locally
+## Run the frontend
 
 Requirements: Node.js 20+ and npm.
 
@@ -41,29 +31,35 @@ npm run build
 npm run preview
 ```
 
+## Solana program
+
+Requirements: Rust, Solana CLI and Anchor CLI 0.31.1.
+
+```bash
+anchor build
+anchor test
+```
+
+The program ID in `Anchor.toml` and `programs/rekey/src/lib.rs` is a public placeholder. Generate a deployment keypair in your own secure environment and run `anchor keys sync` before deploying. Never commit the deployment keypair or wallet secret.
+
 ## Network
 
-The frontend currently connects to **Solana Devnet**. Do not use real funds with this prototype.
+The frontend currently connects to **Solana Devnet**. The program has not been deployed. Do not use real funds.
 
-## Hackathon resource choices
-
-See [docs/hackathon-resources.md](docs/hackathon-resources.md) for the resources reviewed and how they map to this build.
-
-## Architecture and security
+## Documentation
 
 - [Architecture](docs/architecture.md)
 - [Security model](docs/security-model.md)
+- [Dev3pack resource review](docs/hackathon-resources.md)
 
-## Roadmap
+## Security boundaries
 
-- [ ] Anchor program: wallet config and PDA-controlled vault
-- [ ] Guardian registration and threshold policy
-- [ ] Recovery request, approval, cancellation and timelock
-- [ ] WebAuthn passkey verification using Solana secp256r1 verification support
-- [ ] Existing-wallet migration into ReKey smart wallets
-- [ ] Devnet deployment and end-to-end integration tests
-- [ ] Independent security review before mainnet use
+- Guardians authorize recovery; they do not receive spending authority.
+- Recovery approvals are bound to a wallet, request nonce, destination owner and policy version.
+- The owner can cancel during the timelock.
+- The backend must never be an authority for wallet ownership changes.
+- Conventional Solana keypairs cannot be recovered by this program. Existing users must voluntarily migrate assets into a ReKey-controlled account.
 
 ## Disclaimer
 
-ReKey is experimental software. The current prototype is not a wallet recovery service and must not be used to protect valuable assets.
+ReKey is experimental software. The program has not been audited and is not ready for mainnet or valuable assets.

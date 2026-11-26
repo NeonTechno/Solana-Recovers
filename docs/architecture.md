@@ -4,35 +4,36 @@
 
 ReKey is a recovery layer for smart wallets controlled by a Solana program. It cannot recover the private key of a conventional externally-owned Solana account. Existing-wallet support therefore means a user voluntarily connects and migrates assets into a ReKey-controlled account.
 
-## Proposed trust boundaries
+## On-chain components
 
-- **Owner:** controls routine wallet actions and can update recovery policy while authorized.
-- **Passkey:** authenticates the user; it is not a guardian and is not a server-side password reset.
-- **Guardians:** sign a specific recovery authorization; they cannot spend from the wallet.
-- **Recovery program:** validates authorization, nonce, expiry, threshold, delay and cancellation.
-- **Application backend:** optional notification and indexing only; never an authority to change ownership.
+The initial Anchor program implements:
 
-## On-chain account model (planned)
+- `WalletConfig`: immutable initial-owner seed, current owner, guardian list, threshold, timelock, nonce and policy version.
+- `Vault`: program-owned PDA that holds SOL and can release it only when the current wallet owner authorizes a withdrawal.
+- `RecoveryRequest`: proposed new owner, nonce, policy version, timestamps, guardian approvals and state.
 
-- `WalletConfig`: current owner, wallet/vault references, policy version and bump.
-- `GuardianSet`: guardian public keys, threshold and policy version.
-- `RecoveryRequest`: proposed new owner, request nonce, approval bitmap/count, created slot/time, expiry and state.
-- `PasskeyRegistry`: registered passkey credential public keys and metadata.
-- `Vault`: PDA-controlled SOL/SPL token custody.
+## Instructions
 
-Account seeds and serialized layouts must be finalized alongside the Anchor implementation. Do not treat these names as deployed account types.
+- `initialize_wallet`: creates the wallet configuration and SOL vault.
+- `update_recovery_policy`: changes guardians, threshold and delay; increments policy version.
+- `initiate_recovery`: a registered guardian creates a request for a new owner.
+- `approve_recovery`: guardians sign on-chain approval transactions; duplicate approvals fail.
+- `execute_recovery`: permissionless execution after threshold and timelock; changes current owner.
+- `cancel_recovery`: current owner cancels before the timelock elapses.
+- `expire_recovery`: anyone can mark an overdue request expired.
+- `withdraw_sol`: current owner withdraws SOL from the program-controlled vault.
 
 ## Recovery state machine
 
-`Idle → Pending → Approved → Executable → Executed`
+`Pending → Approved → Executed`
 
 Alternative transitions:
 
-- `Pending → Cancelled` by the current owner.
-- `Pending → Expired` after the configured expiry.
-- `Approved → Cancelled` only if policy explicitly allows owner cancellation during the timelock.
+- `Pending → Cancelled` by current owner during the timelock.
+- `Approved → Cancelled` by current owner before the timelock elapses.
+- `Pending/Approved → Expired` after the request expiry.
 
-Every approval must bind to the same wallet, request nonce, new owner, policy version and expiry. Duplicate or replayed approvals must fail.
+Every request binds to the wallet, nonce, proposed owner and policy version. Updating the guardian policy invalidates requests created under the prior policy version.
 
 ## Existing wallet path
 
@@ -44,6 +45,10 @@ Every approval must bind to the same wallet, request nonce, new owner, policy ve
 
 The original account remains controlled by its original key. Never imply that ReKey can alter its authority without the owner's authorization.
 
-## Frontend status
+## Important limitations
 
-The current React/Vite frontend connects Phantom or Solflare on Devnet and reads SOL balances. Guardian and recovery actions are UI simulations only. They do not submit program instructions.
+- The current frontend recovery actions are simulations only.
+- The Anchor source is not yet SBF-built or deployed.
+- The current vault supports SOL only; SPL token custody is a later milestone.
+- Passkey verification is not implemented yet. The current on-chain guardian approval path uses normal Solana transaction signatures.
+- A public placeholder program ID is present. Generate and sync a deployment keypair securely before deployment.
