@@ -21,6 +21,8 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
+      - name: Dependency audit (fail on high severity)
+        run: npm audit --audit-level=high
       - name: Typecheck and build
         run: npm run build
 
