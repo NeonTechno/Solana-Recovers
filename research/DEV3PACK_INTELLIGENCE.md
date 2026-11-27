@@ -264,10 +264,15 @@ Stated plainly so nobody builds on an assumption:
 - `[UNVERIFIED]` **Whether the existing public program ID `284Xsc92KLKwKb7gBYAB8CXWc979FHL11tc185UYqcbP`
   has ever been deployed anywhere.** The repo declares it as a placeholder. Treat it as unusable
   until we generate and sync our own keypair.
-- `[UNVERIFIED]` **solana.com documentation URLs could not be fetched in this session** — the host
-  returned HTTP 429 (rate limit) for every request, not 404. The URLs themselves are almost
-  certainly correct, but we could not re-read their content. See `SOLANA_TECHNICAL_RESOURCES.md`
-  for the first-party GitHub sources we did verify.
+- `[RESOLVED — 2026-11-27, later in the session]` **solana.com documentation URLs could not be
+  fetched directly** — the host returned HTTP 429 for every request. **Solved:** the documentation
+  source repository is `solana-foundation/solana-com` → `apps/docs/content/docs/en/**/*.mdx`
+  (523 English files). I fetched the real `.mdx` sources from there, so the technical content in
+  `SOLANA_TECHNICAL_RESOURCES.md` is now officially verified rather than assumed.
+  **This also surfaced a genuine error in `docs/hackathon-resources.md`:**
+  `https://solana.com/docs/core/transactions/simulate` **does not exist** — the correct path is
+  `https://solana.com/docs/rpc/http/simulatetransaction`. RPC methods live under `/rpc/http/<method>`,
+  not under `/core/transactions/`. See `SOLANA_TECHNICAL_RESOURCES.md` §2.1 and §3.4.
 
 ---
 

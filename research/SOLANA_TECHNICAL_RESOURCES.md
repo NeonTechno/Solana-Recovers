@@ -58,24 +58,34 @@ still unnecessary; leave them.
 
 ## 2. Official documentation — URLs verified
 
-### 2.1 Solana documentation site
+### 2.1 Solana documentation — VERIFIED via the official docs source
 
-`solana.com` was rate-limiting this host (HTTP 429 on every path). The URLs below are the
-canonical ones and were already cited in the repo's `docs/hackathon-resources.md`; treat their
-content as unconfirmed in this session.
+`solana.com` returns **HTTP 429** to this host. The solution was to read the documentation
+**source repository**, which is the same content that renders at `solana.com/docs`:
+**`solana-foundation/solana-com`**, specifically `apps/docs/content/docs/en/**/*.mdx`
+(523 English `.mdx` files).
 
-| URL | Use | Status |
-| --- | --- | --- |
-| `https://solana.com/developers` | Developer portal entry point | `[OFFICIAL-URL-UNVERIFIED-429]` |
-| `https://solana.com/docs` | Core docs | `[OFFICIAL-URL-UNVERIFIED-429]` |
-| `https://solana.com/docs/core/accounts` | Account model, rent, ownership | `[OFFICIAL-URL-UNVERIFIED-429]` |
-| `https://solana.com/docs/core/transactions` | Transaction lifecycle | `[OFFICIAL-URL-UNVERIFIED-429]` |
-| `https://solana.com/docs/core/transactions/simulate` | **`simulateTransaction`** — essential for SENTINEL | `[OFFICIAL-URL-UNVERIFIED-429]` |
-| `https://solana.com/docs/core/transactions/signing-in-production` | Key custody, production signing | `[OFFICIAL-URL-UNVERIFIED-429]` |
-| `https://solana.com/docs/core/programs/precompiles` | Ed25519 / secp256k1 / **secp256r1** verification | `[OFFICIAL-URL-UNVERIFIED-429]` |
-| `https://solana.com/docs/core/tokens` | SPL Token / Token-2022 | `[OFFICIAL-URL-UNVERIFIED-429]` |
-| `https://solana.com/developers/templates` | Official starter templates | `[OFFICIAL-URL-UNVERIFIED-429]` |
-| `https://solana.com/developers/guides/security-best-practices` | Security guidance | `[OFFICIAL-URL-UNVERIFIED-429]` |
+| Correct doc path | Live URL | Local source file | Verified |
+| --- | --- | --- | --- |
+| Precompiles | `https://solana.com/docs/core/programs/precompiles` | `core/programs/precompiles.mdx` | ✅ fetched, HTTP 200, 10,326 B |
+| **`simulateTransaction`** | `https://solana.com/docs/rpc/http/simulatetransaction` | `rpc/http/simulatetransaction.mdx` | ✅ fetched, HTTP 200, 36,275 B |
+| Signing in production | `https://solana.com/docs/core/transactions/signing-in-production` | `core/transactions/signing-in-production.mdx` | ✅ fetched, HTTP 200, 4,091 B |
+| Rent | `https://solana.com/docs/core/rent` | `core/rent.mdx` | ✅ fetched, HTTP 200, 5,082 B |
+| Security tools | `https://solana.com/docs/tools/security` | `tools/security.mdx` | ✅ fetched, HTTP 200, 7,608 B |
+| Accounts (runtime/structure/types) | `https://solana.com/docs/core/accounts` | `core/accounts/*.mdx` | ✅ path confirmed in the repo tree |
+| Templates | `https://solana.com/templates` | `apps/templates/` | ✅ confirmed as a separate app in the repo |
+
+> **URL CORRECTION — this is a real error in `docs/hackathon-resources.md`.** That file cites
+> `https://solana.com/docs/core/transactions/simulate`. **The actual path is
+> `/docs/rpc/http/simulatetransaction`.** There is no `/core/transactions/simulate` route — the
+> path `core/transactions/` covers transaction *structure and lifecycle*, while RPC methods live
+> under `/rpc/http/<methodname>`. **Aider/Junie: use the corrected path.** The same correction
+> applies to any other RPC method we cite.
+
+> **The `docs.solana.com` domain is NOT the docs.** `https://docs.solana.com/` returns HTTP 200 but
+> is a stub page whose only action is a link back to `https://solana.com/docs` (which 429s us).
+> Its own sub-paths (`/core/accounts`, `/core/transactions`, …) all return **404**. Do not use it
+> as a documentation source.
 
 ### 2.2 First-party source repositories — all fetched successfully (HTTP 200)
 
@@ -122,26 +132,42 @@ Our repo pins Anchor **0.31.1**; current stable is **1.2.2** and there is a **2.
 as a blocker for the Devnet deployment, and do not start a 0.31.1 → 1.x migration now. Owner:
 Codex to confirm nothing in the warning set indicates a real bug.
 
-### 3.2 Passkey verification — the constraint that kills the naive design
+### 3.2 Passkey verification — OFFICIALLY VERIFIED, and it constrains the design
+
 The prior `docs/hackathon-resources.md` proposes *"Prototype passkey signature verification with
-the Solana secp256r1 precompile."* Three caveats:
+the Solana secp256r1 precompile."* I have now read the **official source** of that page
+(`solana-foundation/solana-com` → `apps/docs/content/docs/en/core/programs/precompiles.mdx`).
+Verbatim from the official doc:
 
-1. **The `secp256r1` (P-256) precompile cannot be invoked via CPI.** `[UNVERIFIED — could not
-   re-fetch solana.com/docs/core/programs/precompiles due to 429]` It is a native program called by
-   the runtime, not a program you can `invoke` from your own instruction. Verification therefore
-   happens **client-side**, and the on-chain program can only enforce the *result* (an ordinary
-   guardian/authority signature), not re-verify the passkey itself.
-2. **WebAuthn signature algorithms ≠ secp256r1 by default.** Browser passkeys typically sign with
-   **ES256 (P-256)** — which *does* map to secp256r1 — but **EdDSA (Ed25519)** passkeys exist too
-   and would map to the Ed25519 precompile instead. Either way it is a *client-side* check.
-3. **The existing guardian design already has the right shape.** `programs/rekey/src/lib.rs` uses
-   ordinary Solana transaction signatures for guardian approval. Passkeys would slot in as an
-   *additional* client-side authentication factor, with on-chain enforcement unchanged.
+> *"Precompiles (Ed25519, Secp256k1, Secp256r1) verify signatures as native code, bypassing the
+> sBPF VM. They handle cryptographic operations where sBPF execution would be too slow.
+> **Precompiles are not callable via CPI.**"*
 
-`[ASSUMPTION]` **Recommendation:** treat passkeys as a *post-hackathon* research item, not an MVP
-feature. The 3-day window and the "unique Rust program deployed to devnet" gate argue strongly for
-depth on the recovery program rather than breadth. **Owner: Codex to confirm the precompile CPI
-constraint before anyone builds on the prior doc's claim.**
+So the prior doc's claim is **correct**, and the repo's own `docs/security-model.md` already states
+it correctly too. The full constraint set:
+
+| Fact | Source | Consequence for passkeys |
+| --- | --- | --- |
+| Precompiles are **not callable via CPI** | official precompiles doc, Summary block | A program **cannot** ask the runtime to verify a passkey signature. Verification is **client-side**; on-chain enforcement can only check the *result* (an ordinary guardian/authority signature). |
+| `Secp256r1SigVerify1111111111111111111111111` verifies **up to 8** signatures per instruction | official doc | Batch size limit if used. |
+| Public key must be a **33-byte compressed** key | official `Secp256r1SignatureOffsets` | WebAuthn ES256 public keys are already 33-byte compressed P-256 — **compatible**. |
+| Signature must be a **64-byte compact** signature | official doc | WebAuthn ES256 signatures are DER-encoded (~70-72 bytes), **NOT** raw 64-byte `r||s`. A **conversion step is required**, and it must be done correctly. |
+| **Low-S values are enforced** for all signatures | official doc | The DER→compact conversion **must also normalise to low-S**, or verification fails. A classic source of subtle bugs. |
+| The precompile bypasses the sBPF VM | official doc | Cheaper/faster than doing it in-program — but unreachable via CPI from our program. |
+
+`[ASSUMPTION]` **WebAuthn algorithm mapping.** Browser passkeys sign with **ES256 (ECDSA P-256 /
+SHA-256)** by default — which maps cleanly to secp256r1 — but **EdDSA (Ed25519)** passkeys also
+exist and would map to the Ed25519 precompile instead. Either way the check is client-side.
+
+`[ASSUMPTION]` **Recommendation:** treat passkeys as a **post-hackathon** research item, not an MVP
+feature. Reasons: the 3-day window; the "unique Rust program deployed to devnet" gate; the DER→raw
+conversion + low-S normalisation complexity; and the fact that **the existing guardian design
+already has the right shape** — `programs/rekey/src/lib.rs` uses ordinary Solana transaction
+signatures for guardian approval, which is exactly how a client-verified passkey would be enforced
+on-chain (passkey verifies the human; the guardian's Solana signature is the authority). The
+repo's `docs/security-model.md` already reaches this conclusion correctly. **Owner: Codex —
+no longer needs to "confirm the constraint"; it is confirmed. The open question is only whether
+to schedule it.**
 
 ### 3.3 The security reality of "transaction security" (SENTINEL) — non-negotiable framing
 This is the single most important architectural constraint in the whole project, and it must be
@@ -165,12 +191,55 @@ The existing repo already respects this boundary (`docs/security-model.md`, READ
 boundaries"). **Any new UI must not blur it.** Label heuristics vs. verified malicious indicators
 separately, and never fabricate risk scores. **Owner: Aider + Kimi + OpenClaude.**
 
-### 3.4 Simulation is the backbone of transaction inspection
-`simulateTransaction` is the mechanism behind any meaningful "inspect this transaction" feature:
-it shows logs, compute-unit consumption, account changes and errors **before** the user signs.
-`[ASSUMPTION]` This is the recommended foundation for SENTINEL's advisory layer, and it is
-free — no extra infra, no key custody. It also has a natural home in the existing app, which already
-talks to a Devnet RPC. Owner: Aider (engine) + Junie (UI).
+### 3.4 Simulation is the backbone of transaction inspection — OFFICIALLY VERIFIED
+
+I read the official `simulateTransaction` doc source
+(`rpc/http/simulatetransaction.mdx`, 36 KB). It is the mechanism behind any meaningful "inspect this
+transaction" feature, and it is **free** — no extra infra, no key custody.
+
+**Request parameters** (official): `encoding`, `commitment`, `replaceRecentBlockhash`,
+`sigVerify`, `minContextSlot`, `innerInstructions`, `accounts`.
+
+**Result fields** (official, from `result.value`):
+
+| Field | Type | Why it matters for transaction inspection |
+| --- | --- | --- |
+| `err` | object/string/null | **Would the transaction fail?** The single most important signal. |
+| `logs` | array/null | Program logs — reveals what the program actually does. |
+| `accounts` | array/null | **Post-simulation account state** — shows balances/owners after execution. Requires `accounts.addresses` in the request. |
+| `unitsConsumed` | u64/null | Compute cost — an outlier is a heuristic signal. |
+| `innerInstructions` | array/null | **CPIs actually invoked** — reveals hidden downstream calls. Requires `innerInstructions: true`. |
+| `returnData` | object/null | Return data from the last instruction. |
+| `loadedAccountsDataSize` | u32/null | How much account data was touched. |
+| `replacementBlockhash` | object/null | The blockhash used when `replaceRecentBlockhash` is enabled. |
+| `fee` | u64/null | Fee the transaction would pay. |
+| `context.slot` / `context.apiVersion` | u64/string | Slot and node version — useful for provenance. |
+
+`[ASSUMPTION]` **This is the concrete API surface for SENTINEL's advisory layer**, and it maps
+directly onto the risks worth inspecting:
+
+| Signal | Field | Heuristic strength |
+| --- | --- | --- |
+| Transaction would fail | `err` | **Deterministic**, not a heuristic. |
+| Program emitted unexpected logs | `logs` | Strong heuristic — e.g. a program that logs "admin" or "upgrade" unexpectedly. |
+| Balance moved to an unknown account | `accounts` | Strong heuristic — compare account addresses against a known-safe set. |
+| Unexpected CPI chain | `innerInstructions` | Strong heuristic — a dApp calling program X which CPIs to program Y is a real signal. |
+| Compute unit outlier | `unitsConsumed` | Weak heuristic — only meaningful against a baseline for that program. |
+| Fee anomaly | `fee` | Weak heuristic. |
+
+`[ASSUMPTION]` **Critical correctness note for Aider/Kimi:** `simulateTransaction` reflects the
+**current on-chain state** at a given slot. A transaction that simulates cleanly may still behave
+differently later (account state changes, oracle price moves, other people's transactions landing
+first). Therefore **a successful simulation is NOT a security guarantee** — it must be presented as
+"no error detected in simulation at slot N", never as "this transaction is safe". The official
+result object includes `context.slot` precisely so the caller can record which state was evaluated.
+
+`[ASSUMPTION]` **`sigVerify: false`** is the default in the official Kit example. For a security
+product, **`sigVerify: true` matters**: it makes the node verify signatures during simulation,
+which catches a genuinely invalid signature instead of just simulating the instruction logic. Aider
+should set this explicitly and record it.
+
+Owner: **Aider** (engine) + **Junie** (UI) + **Kimi** (heuristic quality).
 
 ### 3.5 Wallet Standard over Wallet Adapter
 `[OFFICIAL-CODE]` `anza-xyz/wallet-standard` is the current standard; the `wallet-adapter-*`
@@ -478,7 +547,12 @@ All fetched **2026-11-27**.
 | U20 | `https://www.anchor-lang.com/docs` | 200 | `[OFFICIAL]` |
 | U21 | `https://solana.com/developers` | **429** | `[OFFICIAL-URL-UNVERIFIED-429]` |
 | U22 | `https://solana.com/docs` | **429** | `[OFFICIAL-URL-UNVERIFIED-429]` |
-| U23 | `https://solana.com/docs/core/programs/precompiles` | **429** | `[OFFICIAL-URL-UNVERIFIED-429]` |
-| U24 | `https://solana.com/docs/core/transactions/simulate` | **429** | `[OFFICIAL-URL-UNVERIFIED-429]` |
-| U25 | `https://solana.com/docs/core/transactions/signing-in-production` | **429** | `[OFFICIAL-URL-UNVERIFIED-429]` |
-| U26 | `https://solana.com/sitemap.xml` | **429** | `[OFFICIAL-URL-UNVERIFIED-429]` |
+| U23 | `https://solana.com/sitemap.xml` | **429** | `[OFFICIAL-URL-UNVERIFIED-429]` |
+| U27 | `https://api.github.com/repos/solana-foundation/solana-com/contents/apps/docs` | 200 | `[OFFICIAL-CODE]` — **the solana.com/docs source repo** |
+| U28 | `.../solana-com/git/trees/HEAD?recursive=1` | 200 (13,105 paths) | `[OFFICIAL-CODE]` |
+| U29 | `raw.../apps/docs/content/docs/en/core/programs/precompiles.mdx` | 200 | `[OFFICIAL]` — **precompiles content** |
+| U30 | `raw.../apps/docs/content/docs/en/rpc/http/simulatetransaction.mdx` | 200 | `[OFFICIAL]` — **simulateTransaction content** |
+| U31 | `raw.../apps/docs/content/docs/en/core/transactions/signing-in-production.mdx` | 200 | `[OFFICIAL]` |
+| U32 | `raw.../apps/docs/content/docs/en/core/rent.mdx` | 200 | `[OFFICIAL]` |
+| U33 | `raw.../apps/docs/content/docs/en/tools/security.mdx` | 200 | `[OFFICIAL]` |
+| U34 | `https://docs.solana.com/` | 200 (stub) / 404 on all sub-paths | `[OFFICIAL]` — **not the docs; a redirect stub** |
