@@ -286,6 +286,7 @@ Stated plainly so nobody builds on an assumption:
 | P7 | **Write the security model honestly** — label heuristics vs verified indicators; never claim an external service can block a wallet transaction pre-signature. | Judging signal "product clarity" + our own engineering-quality bar |
 | P8 | **Do not chase the x402 $500 bonus** unless the core is done and tested. | Bonus is discretionary; core gates are not |
 
+
 ---
 
 ## 12. Source index
@@ -309,3 +310,47 @@ All accessed **2026-11-27**.
 Cross-reference for our own repo's prior review: `docs/hackathon-resources.md` (reviewed 26 Nov 2026
 by a previous pass) — see `HACKATHON_REQUIREMENTS.md` §"Gap analysis" for what it got right and
 what it missed.
+
+---
+
+## 13. Prior-art check — three existing projects, and what it means for our positioning
+
+The Dev3pack FAQ recommends **Colosseum Copilot** for idea discovery and prior art. That tool
+requires interactive browser/device sign-in (`npx @colosseum-org/copilot-connect login --device`),
+which an autonomous agent cannot complete, so I used the unauthenticated public GitHub search API
+instead. **This is a narrower sweep than Colosseum's 5,400+ project index** — see the caveat.
+
+All three matches are **web-only TypeScript projects with zero on-chain programs**:
+
+| Repo | Description | Created / last push | Stars | Rust/Anchor files |
+| --- | --- | --- | --- | --- |
+| `AshishChikane/sol-security-transaction` | "SignSafeli: pre-sign AI firewall for Solana. Simulates, risk-scores and explains every transaction before you sign." | 2026-04-15 / 2026-04-17 | 0 | **NONE** |
+| `Sugusdaddy/solana-tx-simulator` | "Transaction simulation engine that predicts state changes, token transfers, and potential risks before signing — Similar to Blowfish/Phantom security features" (MIT) | 2026-03-10 / 2026-03-10 | 0 | **NONE** |
+| `mbbairagii/solana-xray` | "Solana (TX) X-Ray is a transaction simulator and risk explainer that decodes any Solana transaction into plain language before you sign it." | 2026-02-23 / 2026-03-31 | 0 | **NONE** |
+
+Verified by listing every file in each repo tree via the GitHub API: **no `.rs`, no `Anchor.toml`,
+no `Cargo.toml` in any of them.**
+
+### What this changes
+
+1. **The concept is not novel.** "Inspect a transaction before the user signs" exists in three
+   open-source projects *and* in production inside Phantom and Blowfish. A judge will know this.
+   Claiming novelty here is a credibility risk, not a strategy.
+2. **But all three are ineligible for the main track**, because the main track requires a deployed
+   Rust Solana program. We would be doing the part they skipped.
+3. **The defensible claim is the combination:** an on-chain program that makes recovery and policy
+   **enforceable**, plus a clearly-distinguished **advisory** inspection layer. The on-chain side is
+   the differentiator, not the inspection side.
+
+### Positioning rules this implies
+
+| Do | Do not |
+| --- | --- |
+| Lead with **enforceability** — program-controlled authority, guardian threshold, timelock | Lead with "AI firewall" or "risk-scores" — already taken |
+| Say plainly that a third-party service **cannot** block a transaction before the wallet signs | Imply we detect malice better than Phantom/Blowfish |
+| Distinguish enforceable (program) vs advisory (UI/service) **on screen and in the README** | Use "block"/"prevent" for anything advisory |
+| Position on recovery, program integrity and smart-account authorization | Fabricate threat-intelligence claims or risk scores |
+
+*Caveat:* GitHub search is not the Colosseum index. If anyone can complete the Colosseum Copilot
+device login, a proper duplicate check should still be run before the product name and positioning
+are finalised. **Owner: OpenClaude + whoever can complete the sign-in.**

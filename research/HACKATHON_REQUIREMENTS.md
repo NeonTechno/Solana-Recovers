@@ -10,6 +10,40 @@ against the actual repository at commit `415f23e` (`https://github.com/NeonTechn
 
 ---
 
+## 0. Verified baseline state (2026-11-27, real command output)
+
+Before anything else, the honest starting position. All of these were actually executed in
+`/Users/user/solana-recovers-agents/hermes` at baseline `415f23e`.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Rust compile | `cargo check -p rekey-program` | ✅ **EXIT 0** — 20 warnings, 0 errors (6m00s cold) |
+| Rust tests | `cargo test -p rekey-program` | ✅ **EXIT 0 — 7 passed, 0 failed** |
+| Frontend build | `npm run build` | ✅ **EXIT 0** — vite 6.4.6, 1946 modules, 25.35s |
+| Dependency audit (CI gate) | `npm audit --audit-level=high` | ✅ **EXIT 0** — 15 moderate, 0 high, 0 critical |
+| Rust formatting | `cargo fmt --all -- --check` | ⚠️ **FAILS** — committed source is not rustfmt-clean |
+| CI formatting step | `cargo fmt --all` (as CI runs it) | ⚠️ **Rewrites files, never fails** — a no-op gate |
+| SBF build | `anchor build` | ❌ **Cannot run — Anchor CLI not installed** |
+| Devnet deployment | `anchor deploy --url devnet` | ❌ **Not done — the blocking eligibility gap** |
+| Integration tests | `anchor test` | ❌ **Do not exist** — only `validate_policy` unit tests |
+
+### The two real gaps
+
+1. **The program has never been SBF-built or deployed to Devnet.** Everything else is ready; this
+   single item decides main-track eligibility.
+2. **CI cannot catch Rust formatting drift**, because the step rewrites instead of checking.
+
+### What is already genuinely good — do not regress it
+
+The baseline is **green**. The existing implementation is better than the launch kit's brief
+assumed. Specifically, `docs/security-model.md` is already accurate and honest: it states the
+current test scope precisely, lists the remaining security work in priority order, correctly
+documents the npm advisory chain, and **already identifies the secp256r1-not-CPI-callable
+constraint**. `docs/architecture.md` already separates on-chain components from the prototype UI
+and labels the simulation limits. Preserve this discipline — it is a Stage-2 judging asset.
+
+---
+
 ## A. Submission-form gate (5 steps)
 
 | # | Step | Field | Requirement | Status | Action |
@@ -96,7 +130,38 @@ And one **hard disqualifier** to design around:
   is a cryptographic impossibility; only a program- or smart-account-controlled path can enforce.
 - ❌ Do not fabricate threat intelligence or risk scores. Label heuristics vs. verified indicators.
 
-## F. Owner assignment (proposal — OpenClaude to ratify)
+## F. Prior-art and positioning (verified 2026-11-27)
+
+Three projects already do web-only Solana transaction inspection:
+
+| Repo | What it does | Rust/Anchor files | Stars |
+| --- | --- | --- | --- |
+| `AshishChikane/sol-security-transaction` | "SignSafeli: pre-sign AI firewall for Solana" | **NONE** | 0 |
+| `Sugusdaddy/solana-tx-simulator` | Simulation + risk prediction before signing (MIT) | **NONE** | 0 |
+| `mbbairagii/solana-xray` | "TX X-Ray" — decode + explain any transaction | **NONE** | 0 |
+
+**All three are TypeScript-only with zero on-chain programs**, so all three would be **ineligible**
+for the main track. That is our differentiator.
+
+**Do:**
+- Position on **enforceability** — an on-chain program that makes recovery/policy enforceable,
+  with inspection clearly distinguished as advisory.
+- Claim *no* novelty for "inspect a transaction before signing". Phantom and Blowfish ship
+  production versions of that idea.
+- Say plainly that a third-party service **cannot** block a transaction before the user's wallet
+  signs it.
+
+**Do not:**
+- Use "AI firewall" or "risk-scores" as headline claims — already taken.
+- Imply we detect malice better than Phantom/Blowfish.
+- Overstate threat-intelligence capability. Label heuristics vs. verified indicators separately.
+
+*Caveat:* this sweep used the public GitHub search API, not Colosseum Copilot's 5,400+ project
+index — Copilot requires interactive device sign-in an autonomous agent cannot complete. If someone
+can complete that login, a proper duplicate check should still be run before the product name and
+positioning are finalised.
+
+## G. Owner assignment (proposal — OpenClaude to ratify)
 
 | Item | Suggested owner | Blocking? |
 | --- | --- | --- |
@@ -111,7 +176,7 @@ And one **hard disqualifier** to design around:
 | README devnet address + setup instructions | **OpenClaude** + **Codex** | Yes |
 | Final submission-form entry | **Human owner** | Yes |
 
-## G. Verification checklist for the final submission
+## H. Verification checklist for the final submission
 
 Run this before submitting:
 
@@ -127,6 +192,9 @@ Run this before submitting:
 - [ ] Demo video is on a public link
 - [ ] Live app URL responds
 - [ ] `npm run build` passes
-- [ ] `cargo test` / `anchor test` passes
+- [ ] `cargo test -p rekey-program` passes (currently 7/7 — keep it green)
+- [ ] `cargo fmt --all -- --check` passes (currently FAILS — fix before submission)
+- [ ] `anchor test` integration suite exists and passes (currently does not exist)
+- [ ] `npm audit --audit-level=high` exits 0 (currently passes)
 - [ ] No secrets in the tree (`git grep -nE '^[A-Za-z0-9]{64,}$'`-style sweep, plus `.env` review)
 - [ ] The demo shows real on-chain state, and any simulation is labelled on screen

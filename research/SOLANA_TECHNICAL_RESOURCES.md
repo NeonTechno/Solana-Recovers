@@ -181,12 +181,14 @@ modernisation path.
 
 ### 3.6 Testing stack options for Codex
 `[OFFICIAL-CODE]` **Mollusk** (`anza-xyz/mollusk`) is an in-process SVM test harness — fast unit
-tests without a validator. `[ASSUMPTION]` The repo's `Anchor.toml` still declares the legacy
-`[scripts] test = "yarn ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"` pattern, but **there
-is no `tests/` directory** in the repository — the 20-file tree has no test harness at all. The
-README's claim of *"earlier reported Rust tests 7/7"* is **not reproducible from the current tree**
-(see §4). Establishing a real test harness (Mollusk or `anchor test` + LiteSVM) is a genuine gap.
-**Owner: Codex.**
+tests without a validator. **CORRECTED (verified):** the repo's `Anchor.toml` declares the legacy
+`[scripts] test = "yarn ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"` pattern, but there is
+no `tests/` directory — **the tests are inline** in `programs/rekey/src/lib.rs` in a
+`#[cfg(test)] mod tests` block starting at line 620. There are **7 unit tests**, and they **pass**
+(verified in §4). They cover `validate_policy` only: 2-of-3 acceptance, empty set, duplicate
+guardians, owner-as-guardian, threshold > guardian count, and timelock bounds. There are **no**
+integration or state-machine tests — exactly as `docs/security-model.md` states. Establishing
+local-validator integration tests is a genuine gap. **Owner: Codex.**
 
 ---
 
@@ -256,7 +258,9 @@ tsconfig.json
 vite.config.ts
 ```
 **Notable absences `[VERIFIED]`:**
-- **No `tests/` directory** — `Anchor.toml` references `tests/**/*.ts` but it does not exist.
+- **No `tests/` directory** — `Anchor.toml` references `tests/**/*.ts` but the tests are **inline**
+  in `programs/rekey/src/lib.rs` (`#[cfg(test)] mod tests`, line 620). 7 tests, all passing.
+  The real gap is the **absence of integration/state-machine tests**, not the absence of tests.
 - **No `idls/` directory** — no generated IDL is committed.
 - **No `package-lock.json`** — the npm dependency tree is not pinned. `[ASSUMPTION]` This is a
   supply-chain risk *and* a reproducibility problem for judges running `npm install`. Owner: Vibe.
@@ -280,6 +284,169 @@ vite.config.ts
 | T8 | **Treat passkeys as post-hackathon research** and correct the CPI claim in the docs. | secp256r1 precompile is not CPI-callable; verification is client-side. | Codex |
 | T9 | **Verify the docs' solana.com URLs from a non-rate-limited host** and fold corrections into `docs/hackathon-resources.md`. | We got 429 on every request; some claims in that file may have drifted. | Hermes / Kimi |
 | T10 | **Add a `.env.example` and document the Devnet RPC endpoint.** | Judges need to run it. | Vibe |
+
+
+---
+
+## 5. Full verification log — commands actually run (2026-11-27)
+
+Every result below is real output from this session, in `/Users/user/solana-recovers-agents/hermes`
+(branch `agents/research`, baseline `415f23e`).
+
+### 5.1 Rust program — compiles and tests pass
+
+```
+$ cargo check -p rekey-program
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6m 00s
+EXIT: 0
+```
+20 warnings, 0 errors. Warning breakdown: 10× `unexpected cfg condition value: anchor-debug`,
+2× `solana`, 1× `custom-panic`, 1× `custom-heap`, 1× deprecated
+`AccountInfo::<'a>::realloc` (emitted by the `#[program]` macro itself — upstream, not our code).
+
+```
+$ cargo test -p rekey-program
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6m 50s
+     Running unittests src/lib.rs (.../rekey_program-4bd333d3283da259)
+
+running 7 tests
+test test_id ... ok
+test tests::accepts_two_of_three_guardian_policy ... ok
+test tests::rejects_duplicate_guardians ... ok
+test tests::rejects_empty_guardian_set ... ok
+test tests::rejects_threshold_above_guardian_count ... ok
+test tests::rejects_owner_as_guardian ... ok
+test tests::rejects_timelock_outside_policy_bounds ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+   Doc-tests rekey_program: 0 passed (none)
+EXIT: 0
+```
+**The README's "Rust tests 7/7" claim is verified reproducible.** The tests are **inline** in
+`programs/rekey/src/lib.rs` (`#[cfg(test)] mod tests`, line 620) — not in a `tests/` directory.
+
+### 5.2 Frontend — builds clean
+
+```
+$ npm install
+  40 packages are looking for funding
+  15 moderate severity vulnerabilities
+
+$ npm run build
+> tsc -b && vite build
+vite v6.4.6 building for production...
+✓ 1946 modules transformed.
+dist/index.html                            0.91 kB │ gzip:  0.43 kB
+dist/assets/solana-wallets-DuSOMcHt.css    4.86 kB │ gzip:  1.36 kB
+dist/assets/index-DSvuSqDC.css             17.96 kB │ gzip:  4.84 kB
+dist/assets/index-DvAWv6fC.js              29.78 kB │ gzip:  7.64 kB
+dist/assets/react-vendor-CMUqKMyQ.js      143.47 kB │ gzip: 45.95 kB
+dist/assets/solana-wallets-RXG_GF9p.js    210.93 kB │ gzip: 65.61 kB
+dist/assets/solana-web3-D6L5WlAS.js       273.93 kB │ gzip: 81.73 kB
+✓ built in 25.35s
+EXIT: 0
+```
+
+### 5.3 Dependency audit — CI gate passes, root cause identified
+
+```
+$ npm audit --audit-level=high        # the exact CI gate
+EXIT: 0                             # PASSES
+```
+Full audit: **15 moderate, 0 high, 0 critical**, 615 dependencies (348 prod / 71 dev / 61 optional / 190 peer).
+
+**All 15 trace to one root cause.** The chain is:
+
+```
+@solana/web3.js@1.99.0
+  └─ jayson@4.3.0
+       ├─ stream-json@1.9.1   -> 3 advisories
+       └─ uuid@8.3.2
+@solflare-wallet/sdk@1.4.2
+  └─ uuid@9.0.1
+```
+
+| Advisory | Package | Range | CVSS | ID |
+| --- | --- | --- | --- | --- |
+| `pick/ignore/filter/replace` filters are O(depth²) on nested input — small crafted JSON blocks the event loop (DoS) | `stream-json` | ≤ 3.4.0 | 6.2 | GHSA-528h-pc64-c93x |
+| JSONC parser and verifier re-scan the whole accumulated comment on every input chunk | `stream-json` | ≤ 3.5.0 | 6.2 | GHSA-hqr4-qq8f-hg3x |
+| Prototype pollution — Assembler writes `this.current[this.key]` on plain objects | `stream-json` | < 3.6.0 | 5.1 | GHSA-mjw6-4jj6-33hc |
+| Missing buffer bounds check in v3/v5/v6 when `buf` is provided | `uuid` | < 11.1.1 | 7.5 | GHSA-w5hq-g745-h8pq |
+
+`npm audit` reports `fixAvailable: false` for the chain. The only offered fixes are
+**semver-major downgrades** (`@solana/wallet-adapter-solflare` → 0.6.3), which would be worse.
+
+`[ASSUMPTION]` **Risk assessment:** `jayson`/`stream-json`/`uuid` are **node-side** dependencies of
+the web3.js RPC client. A browser dApp ships `web3.js` to the browser, but the vulnerable parsing
+path is server-side. Exploitability from a static browser bundle is therefore low. This is still
+**not a security audit** — Kimi/Aider should confirm. `docs/security-model.md` already documents
+this correctly. **Do not force-upgrade web3.js v1→v3 mid-hackathon**: that is a breaking change with
+no eligibility benefit.
+
+### 5.4 CI formatting step is a no-op gate — NEW FINDING
+
+`.github/workflows/ci.yml` runs:
+```yaml
+- name: Format Rust sources
+  run: cargo fmt --all
+```
+`cargo fmt --all` **rewrites** files. It never exits non-zero on drift, so **CI cannot catch
+formatting regressions**. Verified:
+
+```
+$ cargo fmt --all -- --check
+Diff in programs/rekey/src/lib.rs:17:
+-        validate_policy(&guardians, threshold, delay_seconds, ctx.accounts.owner.key())?;
++        validate_policy(
++            &guardians,
++            threshold,
++            delay_seconds,
++            ctx.accounts.owner.key(),
++        )?;
+... (further diffs at :47 and :86)
+
+$ cargo fmt --all && git diff --stat
+ programs/rekey/src/lib.rs | 26 ++++++++++++++++++--------
+ 1 file changed, 18 insertions(+), 8 deletions(-)
+```
+
+The committed source is **not rustfmt-clean**. (My working tree was reverted immediately after
+measuring this; `lib.rs` is byte-identical to the commit.)
+
+**Recommendation:** change the CI step to `cargo fmt --all -- --check` and commit the
+rustfmt-clean file. Low risk, real quality gain, and *"repo quality"* is an explicit Stage-2
+judging signal. **Owner: Codex (program) + Vibe (CI).**
+
+### 5.5 Prior-art check
+
+Public GitHub search API, 2026-11-27. Colosseum Copilot — the tool the Dev3pack FAQ recommends —
+requires interactive browser/device sign-in (`npx @colosseum-org/copilot-connect login --device`),
+which an autonomous agent cannot complete, so the public API was used instead. **This is a weaker
+sweep than Colosseum's 5,400+ project index.**
+
+| Repo | Description | Created / Last push | Lang | Stars | Rust/Anchor files |
+| --- | --- | --- | --- | --- | --- |
+| `AshishChikane/sol-security-transaction` | "SignSafeli: pre-sign AI firewall for Solana. Simulates, risk-scores and explains every transaction before you sign." | 2026-04-15 / 2026-04-17 | TypeScript | 0 | **NONE** |
+| `Sugusdaddy/solana-tx-simulator` | "Transaction simulation engine that predicts state changes, token transfers, and potential risks before signing — Similar to Blowfish/Phantom security features" | 2026-03-10 / 2026-03-10 | TypeScript (MIT) | 0 | **NONE** |
+| `mbbairagii/solana-xray` | "Solana (TX) X-Ray is a transaction simulator and risk explainer that decodes any Solana transaction into plain language before you sign it." | 2026-02-23 / 2026-03-31 | TypeScript | 0 | **NONE** |
+
+**The decisive differentiator: all three are web-only TypeScript projects with zero on-chain
+programs.** I listed every file in each repo tree via the GitHub API; none contains a `.rs`,
+`Anchor.toml` or `Cargo.toml`.
+
+`[ASSUMPTION]` **Positioning consequence:** the concept "inspect a transaction before signing" is
+**not** novel — three projects already do it, and the major wallets (Phantom, Blowfish) ship
+production versions of it. Our defensible claim is the **combination**: an on-chain Rust/Anchor
+program that makes recovery and policy **enforceable** (not merely advisory), with the
+transaction-inspection layer clearly distinguished from it. All three prior-art projects would be
+**ineligible for the Dev3pack main track** because they have no deployed Solana program. Avoid the
+phrases "AI firewall" and "risk-scores" — they are already taken.
+
+### 5.6 Environment gap affecting skills
+
+The `firecrawl-search` / `firecrawl-scrape` skills could not be used: the local Firecrawl service
+refused connections on `localhost:3002`. All Dev3pack pages were instead fetched with `curl` and
+converted with a purpose-built dependency-free HTML→text extractor.
 
 ---
 
