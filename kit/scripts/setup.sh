@@ -48,7 +48,22 @@ historical branches (agents/solana-protocol, agents/security-engine) and worktre
 so no prior work is lost; their roles are covered by the remaining agents.
 EOF
 cat > "$COORD/OWNERSHIP.md" <<'EOF'
-Hermes owns research reports. OpenClaude owns architecture, interface contracts and coordination. Codex owns assigned Anchor/Rust code. Aider owns security engine and security tests. Junie owns frontend/wallet UX. Kimi owns threat research and adversarial fixtures. Vibe owns API/integration/DevOps. All may read all worktrees. Do not edit another agent's owned code without approval. Human owner retains merge/deploy authority.
+Hermes owns research reports. OpenClaude owns architecture, interface contracts and coordination. Junie owns frontend/wallet UX. Kimi owns threat research and adversarial fixtures. Vibe owns API/integration/DevOps.
+
+Ownership areas are guides, not walls. Any agent may edit any file when it unblocks the team.
+Codex and Aider were removed from the CLI agent set by the human owner on 2026-11-27; their roles
+(Anchor/Rust program engineering and the security engine) are covered by the remaining agents.
+
+Rules for cross-agent edits:
+1. Never discard another agent's work. No reset --hard, no checkout -- over their changes.
+2. Announce before editing a file another agent is actively working on: check their
+   status/<agent>.json and recent commits, then write to messages/inbox/ saying what you change.
+3. First mover announces. If two agents need the same file, whoever moves first says so and the
+   other adapts. No silent overwrites.
+4. Branch and worktree isolation still applies. Do not push to another agent's branch.
+5. Architecture decisions are recorded in DECISIONS.md; update it if you change a published
+   decision so the code and the decision never contradict each other.
+6. Human owner retains merge/deploy authority. No agent merges to main or deploys to Mainnet.
 EOF
 cat > "$COORD/ARCHITECTURE.md" <<'EOF'
 # Pending initial audit
