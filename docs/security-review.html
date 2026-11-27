@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Security and readiness review for the ReKey Solana recovery prototype." />
+    <title>ReKey security review · 2026-11-27</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #24211d;
+        background: #f5f1ea;
+        font-synthesis: none;
+        text-rendering: optimizeLegibility;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #f5f1ea; line-height: 1.55; }
+      main { max-width: 1000px; margin: 0 auto; padding: 38px 22px 64px; }
+      header { padding-bottom: 24px; border-bottom: 1px solid #cbbba9; }
+      .eyebrow { color: #6b5a47; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+      h1 { margin: 8px 0 7px; font-size: clamp(28px, 5vw, 42px); letter-spacing: -.04em; line-height: 1.1; }
+      h2 { margin: 30px 0 12px; font-size: 20px; letter-spacing: -.02em; }
+      h3 { margin: 0 0 7px; font-size: 15px; }
+      p { max-width: 75ch; margin: 0 0 12px; }
+      .subtitle, .muted { color: #51483f; }
+      .summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 22px 0 26px; }
+      .metric { padding: 14px; border: 1px solid #cbbba9; border-radius: 9px; background: #fff; }
+      .metric span { display: block; color: #51483f; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+      .metric strong { display: block; margin-top: 4px; font: 600 23px "DM Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+      .metric .no { color: #913c2f; font: 600 13px Inter, ui-sans-serif, sans-serif; }
+      section, .callout { margin-top: 18px; }
+      .callout { padding: 16px 18px; border-left: 4px solid #6c4128; background: #e8dfd3; }
+      .callout p:last-child { margin-bottom: 0; }
+      table { width: 100%; border-collapse: collapse; background: #fff; }
+      th, td { padding: 12px; border: 1px solid #cbbba9; text-align: left; vertical-align: top; }
+      th { background: #e8dfd3; font-size: 12px; }
+      td { font-size: 13px; }
+      .severity { font-weight: 700; white-space: nowrap; }
+      .severity.high { color: #87362b; }
+      .severity.medium { color: #68460b; }
+      .severity.low { color: #51483f; }
+      code { padding: 1px 4px; border-radius: 3px; background: #eee8e0; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+      ul, ol { padding-left: 22px; }
+      li { margin: 5px 0; }
+      .status { display: inline-block; padding: 4px 8px; border: 1px solid #913c2f; border-radius: 5px; color: #87362b; font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+      .footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid #cbbba9; color: #51483f; font-size: 12px; }
+      @media (max-width: 700px) {
+        main { padding: 25px 14px 44px; }
+        .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        table, tbody, tr, td { display: block; }
+        thead { display: none; }
+        tr { margin-bottom: 14px; border: 1px solid #cbbba9; background: #fff; }
+        td { border: 0; border-bottom: 1px solid #e8dfd3; }
+        td:last-child { border-bottom: 0; }
+        td::before { display: block; margin-bottom: 3px; color: #51483f; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+        td:nth-child(1)::before { content: "Finding"; }
+        td:nth-child(2)::before { content: "Severity"; }
+        td:nth-child(3)::before { content: "Evidence"; }
+        td:nth-child(4)::before { content: "Action"; }
+      }
+      @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="eyebrow">ReKey · defensive code review · 2026-11-27</div>
+        <h1>Security and readiness review</h1>
+        <p class="subtitle">Scope: the recovery program, advisory transaction-simulation helper, dependency state, and prototype trust UX in the Junie worktree.</p>
+        <span class="status">NOT READY FOR MAINNET</span>
+      </header>
+
+      <div class="summary" aria-label="Review scores">
+        <div class="metric"><span>Security</span><strong>B</strong></div>
+        <div class="metric"><span>Correctness</span><strong>B</strong></div>
+        <div class="metric"><span>Error handling</span><strong>B</strong></div>
+        <div class="metric"><span>Testing</span><strong>C</strong></div>
+        <div class="metric"><span>Organization</span><strong>B</strong></div>
+        <div class="metric"><span>Documentation</span><strong>B</strong></div>
+        <div class="metric"><span>Quality</span><strong>B</strong></div>
+        <div class="metric"><span>Weighted</span><strong>78 / 100</strong></div>
+      </div>
+
+      <section>
+        <h2>Executive result</h2>
+        <p>No exploitable P0 account-validation issue was identified in the reviewed instruction paths. The current program uses signer-typed authorities, typed Anchor accounts, PDA seed/bump constraints, and request-to-wallet relationships. Recovery state transitions are now covered by native unit tests, and a saturating lamport check in vault withdrawals was replaced with checked post-withdrawal balance calculation.</p>
+        <p>The B security score is provisional, not an independent audit. The program has not been exercised through an SVM or local validator in this session; account constraints and serialized transaction paths therefore remain unverified. The overall weighted score is 78/100 (B), limited by that testing gap.</p>
+      </section>
+
+      <section>
+        <h2>Findings and required actions</h2>
+        <table>
+          <thead><tr><th>Finding</th><th>Severity</th><th>Evidence</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>Instruction-level integration coverage is absent.</strong> Current new tests exercise pure private transition helpers, not Anchor account constraints, transaction serialization, signer checks, or account ownership at runtime.</td>
+              <td><span class="severity high">High · release gate</span></td>
+              <td><code>cargo test -p rekey-program</code> passes 15 tests, but no SVM/local-validator test was executed.</td>
+              <td>Add LiteSVM/Mollusk or local-validator tests for unauthorized callers, wrong PDAs, stale policy, expiry, cancellation, withdrawal account ownership, and rent reserve. Do this before Devnet deployment.</td>
+            </tr>
+            <tr>
+              <td><strong>IDL generation remains unverified.</strong> The CLI configuration and <code>idl-build</code> feature are present, but no generated IDL artifact was produced.</td>
+              <td><span class="severity high">High · integration gate</span></td>
+              <td><code>anchor idl build</code> first failed because the invoked nightly Rust compiler could not load <code>librustc_driver</code>; a stable override then timed out while compiling dependencies.</td>
+              <td>Repair the pinned Rust/Anchor toolchain in the integration environment, generate the IDL, and compare it with the intended client contract before wiring any client.</td>
+            </tr>
+            <tr>
+              <td><strong>Transitive dependency advisories need a reproducible lockfile.</strong></td>
+              <td><span class="severity medium">Medium</span></td>
+              <td>The latest npm install summary reported 15 moderate advisories among 566 packages. No package lock was generated in this worktree; the shared security note records the affected transitive chain and no available fix.</td>
+              <td>Integration/DevOps should publish the reviewed <code>package-lock.json</code>, rerun a reproducible audit, and document accepted advisories or upgrade paths.</td>
+            </tr>
+            <tr>
+              <td><strong>Transaction simulation is advisory and not yet integrated into UI.</strong> The helper records slot-scoped results, deterministic RPC execution errors, bounded logs, and heuristic log/CPI observations, but it does not calculate post-state account deltas or resolve CPI program names.</td>
+              <td><span class="severity medium">Medium</span></td>
+              <td><code>src/security/transactionSimulation.ts</code> has mocked tests only and is intentionally isolated while shared transaction-review contracts are pending.</td>
+              <td>Keep it separate from signing until architecture defines transaction fields, UI review, account data, provider behavior, and explicit approval. Never present a clean simulation as proof of safety.</td>
+            </tr>
+            <tr>
+              <td><strong>Upgrade authority and independent audit are still release prerequisites.</strong></td>
+              <td><span class="severity medium">Medium · pre-mainnet</span></td>
+              <td>The project security model already lists multisig upgrade authority and independent audit as deployment gates; neither was verified as complete.</td>
+              <td>Verify the deployed upgrade authority and migrate to a reviewed multisig before any real assets are supported. Obtain an independent audit.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Checks that passed in this review</h2>
+        <ul>
+          <li>Privileged operations use signer-typed accounts; wallet and request PDAs are re-derived with stored bumps and linked with <code>has_one</code>.</li>
+          <li>Guardian policies reject empty, duplicate, owner-colliding, and invalid-threshold configurations.</li>
+          <li>Recovery approval binds to the policy version; duplicate approvals are rejected; execution requires threshold, elapsed timelock, and a non-expired request.</li>
+          <li>Owner cancellation is allowed before the execution delay; expiry is permissionless only after the expiration timestamp.</li>
+          <li>Vault withdrawal math now computes both resulting balances before writing and preserves the rent-exempt reserve.</li>
+          <li>Simulation wrapper refuses unsigned transactions, sets <code>sigVerify: true</code>, never submits, bounds log output, and labels log/CPI observations as heuristics.</li>
+          <li>Prototype UI now distinguishes threshold from execution, uses semantic alert/status announcements, makes the mobile drawer keyboard-dismissible, and provides a real empty notifications state.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Verification evidence</h2>
+        <table>
+          <thead><tr><th>Command / check</th><th>Result</th></tr></thead>
+          <tbody>
+            <tr><td><code>NO_DNA=1 npm test</code></td><td>12 passed, 0 failed.</td></tr>
+            <tr><td><code>NO_DNA=1 npm run build</code></td><td>TypeScript and Vite production build succeeded.</td></tr>
+            <tr><td><code>NO_DNA=1 cargo fmt --all -- --check</code></td><td>Passed.</td></tr>
+            <tr><td><code>NO_DNA=1 cargo test -p rekey-program</code></td><td>15 passed, 0 failed. Anchor macro warnings remain; no test failures.</td></tr>
+            <tr><td>UI browser automation</td><td>Not run: the bundled server helper's <code>--help</code> timed out under Python 3.15.2. Production build succeeded, but responsive browser QA remains open.</td></tr>
+            <tr><td>Anchor IDL / SBF build</td><td>Not completed due the missing nightly Rust compiler dylib and subsequent stable build timeout. No IDL artifact is claimed.</td></tr>
+            <tr><td>Devnet / Mainnet deployment</td><td>Not attempted. No deployment authorization or transaction signing was requested.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <aside class="callout">
+        <h3>Disposition</h3>
+        <p>Keep this as a Devnet prototype. Do not support valuable assets or describe the recovery flow as production-secure until account-level integration tests, IDL generation, deployment authority review, dependency lock/audit, and an independent audit are complete.</p>
+      </aside>
+
+      <footer class="footer">Prepared in the isolated <code>agents/application</code> worktree. This review is a source-level engineering assessment, not a formal audit or deployment approval.</footer>
+    </main>
+  </body>
+</html>

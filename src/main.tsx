@@ -9,6 +9,7 @@ import { clusterApiUrl } from "@solana/web3.js";
 import App from "./App";
 import "./styles.css";
 import "@solana/wallet-adapter-react-ui/styles.css";
+import "./brand.css";
 
 const network = WalletAdapterNetwork.Devnet;
 const endpoint = clusterApiUrl(network);

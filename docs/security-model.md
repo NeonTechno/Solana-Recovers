@@ -11,14 +11,21 @@
 - Current owner can cancel before the timelock elapses.
 - Updating the guardian policy increments the policy version, invalidating older requests.
 - Only the current owner can withdraw SOL from the vault.
+- SOL withdrawals use checked balance calculations and preserve the rent-exempt reserve before either balance is updated.
 
 ## Unit-test coverage
 
-The current Rust unit tests cover valid 2-of-3 policy configuration, empty and duplicate guardian sets, owner/guardian collision, invalid thresholds and invalid timelock bounds. They do not yet test account constraints or transaction state transitions on a validator.
+The Rust unit tests cover valid and invalid policy configuration plus recovery transitions: registered and duplicate approvals, threshold behavior, stale policies, expiration, timelock boundaries, owner cancellation, one-time owner change, terminal-state rejection, and withdrawal balance arithmetic. These are native tests of private helpers; they do not exercise Anchor account constraints, transaction serialization, or execution in an SVM.
+
+## Client transaction simulation
+
+`src/security/transactionSimulation.ts` is an isolated advisory wrapper. It rejects unsigned transactions before RPC, sets `sigVerify: true`, requests confirmed simulation with inner instructions, records the observed slot, and bounds returned log text. An RPC execution error is marked deterministic; log presence and the inner-instruction count are heuristic context only. The wrapper does not classify an instruction as malicious, request post-simulation account data, sign, or submit a transaction. It is not integrated into the UI while the shared transaction-review contract remains pending.
+
+Any future UI caller must obtain explicit user approval for wallet signing separately, show the full transaction summary, and present simulation output as slot-scoped advisory evidence—not a safety guarantee. On-chain logs and account data remain untrusted input.
 
 ## Remaining security work
 
-1. Add integration tests for every success and failure transition.
+1. Add SVM integration tests for account constraints and every success/failure instruction path.
 2. Fuzz guardian threshold, nonce and state transitions.
 3. Review rent and lamport accounting for the program-owned vault.
 4. Add SPL Token / Token-2022 vault support with PDA authority.
@@ -29,7 +36,7 @@ The current Rust unit tests cover valid 2-of-3 policy configuration, empty and d
 
 ## Dependency audit note
 
-The current npm dependency tree reports 15 moderate advisories in transitive dependencies including `stream-json` and `uuid`, reached through `@solana/web3.js` / wallet-adapter and Solflare packages. The npm audit gate currently fails on high severity and passes; npm reports no available fix for the identified moderate advisory chain. Reassess the wallet SDK stack before production use.
+The latest `npm install --no-package-lock --ignore-scripts` reported 15 moderate advisories among 566 packages; it did not report high or critical findings in its summary. The earlier npm audit recorded in the shared project review also found no available fix for the moderate transitive advisory chain, including `stream-json` and `uuid`, reached through Solana wallet packages. No `package-lock.json` was generated in this worktree, so reproduce advisory details after the integration owner publishes the lockfile. Reassess the wallet SDK stack before production use.
 
 ## Threats and controls
 
