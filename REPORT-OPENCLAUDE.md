@@ -301,8 +301,8 @@ git commit -m "docs: add independent Anchor security and architecture reviews"
 | Branch | `feature/security-architecture-review` |
 | Base (`main`, also the merge-base) | `b7d6294365521d7922845af63b8a65b6aff4276f` |
 | Commit 1 — review documents | `2d94a779a823498a5a71829aa1903d9f8f544c4f` |
-| Commit 2 — this report | see `git log` after commit (the HEAD of this branch) |
-| **SHA range** | `b7d6294..<HEAD of feature/security-architecture-review>` |
+| Commit 2 — this report | `3e29fd32397d468b3eddeab172f3878c226969e2` |
+| **SHA range** | `b7d6294365521d7922845af63b8a65b6aff4276f..3e29fd32397d468b3eddeab172f3878c226969e2` (`main..HEAD`, 2 commits) |
 
 Commit 1 message: `docs: add independent Anchor security and architecture reviews`
 (2 files, 1,130 insertions — `docs/security-review.md`, `docs/architecture-review.md`).
