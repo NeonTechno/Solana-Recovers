@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-program:
@@ -83,18 +83,20 @@ jobs:
 
       # Publish the binary to a public branch so it can be fetched without API auth.
       # This is how the Devnet deployment step obtains the program artifact.
+      # Uses the workflow's GITHUB_TOKEN, so it needs `contents: write` only here.
       - name: Publish SBF artifact to public branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          rm -rf .publish
-          git clone --depth 1 --branch ci-artifacts . .publish 2>/dev/null || true
-          mkdir -p .publish
-          cp artifacts/rekey_program.so .publish/rekey_program.so
-          sha256sum artifacts/rekey_program.so > .publish/rekey_program.so.sha256
-          cd .publish
-          git checkout --orphan ci-artifacts-new 2>/dev/null || git checkout --orphan ci-artifacts-new
-          git add -A
-          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -m "ci: SBF artifact $(date -u +%Y%m%d-%H%M%S)"
-          git push --force origin ci-artifacts-new:ci-artifacts
+          git fetch origin ci-artifacts --depth 1 || true
+          git checkout -B ci-artifacts origin/ci-artifacts 2>/dev/null || git checkout --orphan ci-artifacts
+          git rm -rf --quiet . 2>/dev/null || true
+          mkdir -p artifacts
+          cp "$GITHUB_WORKSPACE/artifacts/rekey_program.so" artifacts/rekey_program.so
+          sha256sum artifacts/rekey_program.so > artifacts/rekey_program.so.sha256
+          git add -f artifacts/rekey_program.so artifacts/rekey_program.so.sha256
+          git commit -m "ci: SBF artifact $(date -u +%Y%m%d-%H%M%S)"
+          git push origin ci-artifacts
