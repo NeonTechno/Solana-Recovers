@@ -7,7 +7,7 @@
  */
 
 import Fastify, { type FastifyInstance } from "fastify";
-import { Connection } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
 import type { ApiErrorBody, RecoveryAction } from "../shared/types.ts";
 import { API_VERSION, assertMainnetBlocked, loadConfig, type ServerConfig } from "./config.ts";
 import { createConnection } from "./solana/read.ts";
@@ -63,6 +63,19 @@ export async function buildServer(options: BuildOptions = {}): Promise<FastifyIn
       rpcReachable = false;
     }
 
+    // AR-01: a health endpoint that cannot detect that it is talking to a
+    // non-existent program is not a health endpoint. A wrong program id makes
+    // every wallet read 404 while the health check still says "ok".
+    let programDeployed = false;
+    if (rpcReachable) {
+      try {
+        const info = await connection.getAccountInfo(new PublicKey(config.programId), "confirmed");
+        programDeployed = info !== null && info.executable;
+      } catch {
+        programDeployed = false;
+      }
+    }
+
     let aiReachable = false;
     if (config.ai.configured) {
       try {
@@ -80,10 +93,11 @@ export async function buildServer(options: BuildOptions = {}): Promise<FastifyIn
     }
 
     return {
-      ok: true,
+      ok: rpcReachable,
       cluster: config.cluster,
       programId: config.programId,
       rpcReachable,
+      programDeployed,
       ai: {
         configured: config.ai.configured,
         reachable: aiReachable,
@@ -221,21 +235,48 @@ export async function buildServer(options: BuildOptions = {}): Promise<FastifyIn
   app.post("/api/recovery/plan", async (request, reply) => {
     const body = request.body as {
       address?: string;
+      wallet?: string;
       action?: string;
       newOwner?: string;
       nonce?: number;
+      actor?: string;
     } | null;
 
-    if (!body || typeof body.address !== "string") {
-      throw new RekeyError("invalid_request", "address is required.", 400);
+    // AR-02: `wallet` (or the legacy `address`) is the wallet LOOKUP KEY — the
+    // initial owner, which is the PDA seed. `actor` is the public key expected
+    // to sign. They are separate roles and must not be conflated.
+    const wallet = body?.wallet ?? body?.address;
+    if (!body || !wallet || typeof wallet !== "string") {
+      throw new RekeyError("invalid_request", "wallet is required.", 400);
     }
     const action = normalizeAction(body.action);
-    const plan = await service.buildPlan(body.address, action, {
+    const plan = await service.buildPlan(wallet, action, {
       newOwner: body.newOwner,
       nonce: body.nonce,
+      actor: body.actor,
     });
     return reply.send(plan);
   });
+
+  // AR-02: let a client discover which identity to use for a wallet.
+  app.get<{ Params: { address: string }; Querystring: { actor?: string } }>(
+    "/api/wallet/:address/resolve",
+    async (request, reply) => {
+      const bundle = await service.loadWallet(request.params.address);
+      const actor = request.query.actor;
+      const guardianIndex = actor
+        ? bundle.summary.policy.guardians.findIndex((g) => g.address === actor)
+        : -1;
+      return reply.send({
+        initialOwner: bundle.summary.initialOwner,
+        currentOwner: bundle.summary.owner,
+        isInitialOwner: actor === bundle.summary.initialOwner,
+        isCurrentOwner: actor === bundle.summary.owner,
+        isGuardian: guardianIndex >= 0,
+        guardianIndex: guardianIndex >= 0 ? guardianIndex : null,
+      });
+    },
+  );
 
   return app;
 }

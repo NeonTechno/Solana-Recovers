@@ -5,6 +5,7 @@
  */
 
 import type { Cluster } from "../shared/types.ts";
+import { PROGRAM_ID_STRING } from "./solana/read.ts";
 
 export interface ServerConfig {
   cluster: Cluster;
@@ -50,10 +51,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   return {
     cluster,
     rpcUrl: pick(env.SOLANA_RPC_URL, defaultRpc)!,
-    programId: pick(
-      env.REKEY_PROGRAM_ID,
-      "CuNNoYhAJsGNKZzi7NbEZjVTR2T8GUZyNKMN8SUPzRhS",
-    )!,
+    programId: pick(env.REKEY_PROGRAM_ID, PROGRAM_ID_STRING)!,
     port: Number(pick(env.PORT, "8787")),
     ai: {
       baseUrl,

@@ -195,17 +195,28 @@ export class RekeyService {
   async buildPlan(
     address: string,
     action: RecoveryAction,
-    args: { newOwner?: string; nonce?: number },
+    args: { newOwner?: string; nonce?: number; actor?: string },
   ): Promise<RecoveryPlan> {
     const bundle = await this.loadWallet(address);
     const { config, walletConfigPda } = bundle;
     const now = Math.floor(Date.now() / 1000);
     const warnings: string[] = [];
 
+    // AR-02: `address` is the WALLET LOOKUP KEY (the initial owner, which is the
+    // PDA seed). `actor` is the PUBLIC KEY EXPECTED TO SIGN. They are different
+    // roles: a guardian approving a request is not the initial owner, and the
+    // current owner after a completed recovery is not the initial owner either.
+    // Defaulting the actor to the address preserves the original single-role
+    // behaviour for wallets that have never recovered.
+    const actor = args.actor ?? address;
+
     const base = {
       mode: "live" as const,
       action,
       programId: PROGRAM_ID.toBase58(),
+      // AR-02 / architecture review: a 200 from this endpoint means the action
+      // is well-formed, never that the program will accept it.
+      advisoryOnly: true as const,
     };
 
     switch (action) {
@@ -230,6 +241,13 @@ export class RekeyService {
           throw new RekeyError("same_owner", "The new owner matches the current owner.", 409);
         }
         const requestPda = deriveRecoveryRequestPda(walletConfigPda, config.nextNonce)[0];
+        if (!config.guardians.some((g) => g.toBase58() === actor)) {
+          throw new RekeyError(
+            "unauthorized",
+            "Only a registered guardian can initiate a recovery request.",
+            409,
+          );
+        }
         warnings.push(
           `The request will be bound to policy version ${config.policyVersion}. Changing the policy invalidates it.`,
         );
@@ -238,15 +256,17 @@ export class RekeyService {
         );
         return {
           ...base,
+          advisoryOnly: true as const,
           accounts: {
             walletConfig: walletConfigPda.toBase58(),
             recoveryRequest: requestPda.toBase58(),
-            initiator: address,
+            initiator: actor,
           },
           args: { newOwner: newOwner.toBase58() },
           description: `Guardian initiates a recovery request to ${newOwner.toBase58()}`,
-          requiresSignatureFrom: address,
+          requiresSignatureFrom: actor,
           warnings,
+          advisoryWarnings: warnings,
         };
       }
 
@@ -273,10 +293,17 @@ export class RekeyService {
             409,
           );
         }
-        if (request.approvals.includes(address)) {
+        if (request.approvals.includes(actor)) {
           throw new RekeyError(
             "duplicate_approval",
             "This guardian has already approved the request.",
+            409,
+          );
+        }
+        if (!config.guardians.some((g) => g.toBase58() === actor)) {
+          throw new RekeyError(
+            "unauthorized",
+            "Only a registered guardian can approve a recovery request.",
             409,
           );
         }
@@ -285,15 +312,17 @@ export class RekeyService {
         }
         return {
           ...base,
+          advisoryOnly: true as const,
           accounts: {
             walletConfig: walletConfigPda.toBase58(),
             recoveryRequest: request.request,
-            guardian: address,
+            guardian: actor,
           },
           args: { nonce },
           description: `Guardian approves recovery request #${nonce}`,
-          requiresSignatureFrom: address,
+          requiresSignatureFrom: actor,
           warnings,
+          advisoryWarnings: warnings,
         };
       }
 
@@ -320,7 +349,7 @@ export class RekeyService {
             409,
           );
         }
-        if (config.owner.toBase58() !== address) {
+        if (config.owner.toBase58() !== actor) {
           throw new RekeyError(
             "unauthorized",
             "Only the current wallet owner can cancel a recovery request.",
@@ -329,15 +358,17 @@ export class RekeyService {
         }
         return {
           ...base,
+          advisoryOnly: true as const,
           accounts: {
             walletConfig: walletConfigPda.toBase58(),
             recoveryRequest: request.request,
-            owner: address,
+            owner: actor,
           },
           args: { nonce },
           description: `Owner cancels recovery request #${nonce}`,
-          requiresSignatureFrom: address,
+          requiresSignatureFrom: actor,
           warnings,
+          advisoryWarnings: warnings,
         };
       }
 
@@ -371,6 +402,7 @@ export class RekeyService {
         }
         return {
           ...base,
+          advisoryOnly: true as const,
           accounts: {
             walletConfig: walletConfigPda.toBase58(),
             recoveryRequest: request.request,
@@ -379,6 +411,7 @@ export class RekeyService {
           description: `Execute recovery request #${nonce}, changing the owner to ${request.newOwner}`,
           requiresSignatureFrom: "any account (permissionless once approved and unlocked)",
           warnings,
+          advisoryWarnings: warnings,
         };
       }
 
@@ -407,6 +440,7 @@ export class RekeyService {
         }
         return {
           ...base,
+          advisoryOnly: true as const,
           accounts: {
             walletConfig: walletConfigPda.toBase58(),
             recoveryRequest: request.request,
@@ -415,6 +449,7 @@ export class RekeyService {
           description: `Mark recovery request #${nonce} as expired`,
           requiresSignatureFrom: "any account (permissionless)",
           warnings,
+          advisoryWarnings: warnings,
         };
       }
 

@@ -221,7 +221,12 @@ test("POST /api/recovery/plan prepares an unsigned approve plan", async () => {
   const response = await app.inject({
     method: "POST",
     url: "/api/recovery/plan",
-    payload: { address: OWNER.toBase58(), action: "approve", nonce: 0 },
+    payload: {
+      wallet: OWNER.toBase58(),
+      action: "approve",
+      nonce: 0,
+      actor: GUARDIAN_A.toBase58(),
+    },
   });
   assert.equal(response.statusCode, 200);
   const body = response.json();
@@ -229,8 +234,78 @@ test("POST /api/recovery/plan prepares an unsigned approve plan", async () => {
   assert.equal(body.mode, "live");
   assert.equal(body.programId, "CuNNoYhAJsGNKZzi7NbEZjVTR2T8GUZyNKMN8SUPzRhS");
   assert.ok(body.accounts.recoveryRequest);
-  assert.equal(body.requiresSignatureFrom, OWNER.toBase58());
+  // AR-02: the signer is the guardian (the actor), not the wallet lookup key.
+  assert.equal(body.requiresSignatureFrom, GUARDIAN_A.toBase58());
+  assert.equal(body.accounts.guardian, GUARDIAN_A.toBase58());
   assert.ok(Array.isArray(body.warnings));
+  // The plan is explicitly advisory.
+  assert.equal(body.advisoryOnly, true);
+});
+
+test("AR-01: the plan endpoint rejects a non-guardian actor", async () => {
+  const { app, state } = await makeApp();
+  const { walletConfig } = installWallet(state, {
+    initialOwner: OWNER,
+    guardians: [GUARDIAN_A, GUARDIAN_B],
+    threshold: 1,
+    delaySeconds: 3600,
+    nextNonce: 1,
+  });
+  installRequest(state, walletConfig, { nonce: 0, status: "Pending" });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/recovery/plan",
+    payload: {
+      wallet: OWNER.toBase58(),
+      action: "approve",
+      nonce: 0,
+      actor: OWNER.toBase58(),
+    },
+  });
+  assert.equal(response.statusCode, 409);
+  assert.equal(response.json().error.code, "unauthorized");
+});
+
+test("AR-02: the resolve endpoint reports an address's role", async () => {
+  const { app, state } = await makeApp();
+  installWallet(state, {
+    initialOwner: OWNER,
+    guardians: [GUARDIAN_A, GUARDIAN_B],
+    threshold: 1,
+    delaySeconds: 3600,
+    nextNonce: 0,
+  });
+
+  const asGuardian = await app.inject({
+    method: "GET",
+    url: `/api/wallet/${OWNER.toBase58()}/resolve?actor=${GUARDIAN_A.toBase58()}`,
+  });
+  assert.equal(asGuardian.statusCode, 200);
+  const guardianBody = asGuardian.json();
+  assert.equal(guardianBody.isGuardian, true);
+  assert.equal(guardianBody.guardianIndex, 0);
+  assert.equal(guardianBody.isCurrentOwner, false);
+  assert.equal(guardianBody.currentOwner, OWNER.toBase58());
+
+  const asOwner = await app.inject({
+    method: "GET",
+    url: `/api/wallet/${OWNER.toBase58()}/resolve?actor=${OWNER.toBase58()}`,
+  });
+  const ownerBody = asOwner.json();
+  assert.equal(ownerBody.isInitialOwner, true);
+  assert.equal(ownerBody.isCurrentOwner, true);
+  assert.equal(ownerBody.isGuardian, false);
+});
+
+test("AR-01: health reports whether the program is deployed", async () => {
+  const { app } = await makeApp();
+  const response = await app.inject({ method: "GET", url: "/api/health" });
+  assert.equal(response.statusCode, 200);
+  const body = response.json();
+  assert.equal(typeof body.programDeployed, "boolean");
+  // The mock has no program account, so this must be false, not a silent "ok".
+  assert.equal(body.programDeployed, false);
 });
 
 test("POST /api/recovery/plan rejects an unknown action", async () => {
@@ -258,7 +333,7 @@ test("POST /api/recovery/plan rejects an already-approved request", async () => 
   const response = await app.inject({
     method: "POST",
     url: "/api/recovery/plan",
-    payload: { address: OWNER.toBase58(), action: "approve", nonce: 0 },
+    payload: { wallet: OWNER.toBase58(), action: "approve", nonce: 0, actor: GUARDIAN_A.toBase58() },
   });
   assert.equal(response.statusCode, 409);
   assert.equal(response.json().error.code, "invalid_state");
@@ -279,7 +354,7 @@ test("POST /api/recovery/plan rejects a stale policy request", async () => {
   const response = await app.inject({
     method: "POST",
     url: "/api/recovery/plan",
-    payload: { address: OWNER.toBase58(), action: "approve", nonce: 0 },
+    payload: { wallet: OWNER.toBase58(), action: "approve", nonce: 0, actor: GUARDIAN_A.toBase58() },
   });
   assert.equal(response.statusCode, 409);
   assert.equal(response.json().error.code, "stale_policy");
@@ -305,7 +380,7 @@ test("POST /api/recovery/plan refuses to cancel once the timelock elapsed", asyn
   const response = await app.inject({
     method: "POST",
     url: "/api/recovery/plan",
-    payload: { address: OWNER.toBase58(), action: "cancel", nonce: 0 },
+    payload: { wallet: OWNER.toBase58(), action: "cancel", nonce: 0, actor: OWNER.toBase58() },
   });
   assert.equal(response.statusCode, 409);
   assert.equal(response.json().error.code, "timelock_elapsed");
@@ -325,7 +400,7 @@ test("the API never returns a signature or submits a transaction", async () => {
   const response = await app.inject({
     method: "POST",
     url: "/api/recovery/plan",
-    payload: { address: OWNER.toBase58(), action: "approve", nonce: 0 },
+    payload: { wallet: OWNER.toBase58(), action: "approve", nonce: 0, actor: GUARDIAN_A.toBase58() },
   });
   const body = JSON.stringify(response.json());
   assert.ok(!body.includes("privateKey"));

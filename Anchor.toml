@@ -6,7 +6,10 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-rekey_program = "284Xsc92KLKwKb7gBYAB8CXWc979FHL11tc185UYqcbP"
+rekey_program = "CuNNoYhAJsGNKZzi7NbEZjVTR2T8GUZyNKMN8SUPzRhS"
+
+[programs.devnet]
+rekey_program = "CuNNoYhAJsGNKZzi7NbEZjVTR2T8GUZyNKMN8SUPzRhS"
 
 [provider]
 cluster = "Localnet"

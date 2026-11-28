@@ -10,9 +10,17 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import type { Cluster, RecoveryStatus } from "../../shared/types.ts";
 
-export const PROGRAM_ID = new PublicKey(
-  process.env.REKEY_PROGRAM_ID ?? "CuNNoYhAJsGNKZzi7NbEZjVTR2T8GUZyNKMN8SUPzRhS",
-);
+/**
+ * The single source of truth for the program id.
+ *
+ * AR-01: the id used to be hardcoded in two places (here and config.ts), which
+ * let the server and the program drift apart. It now lives here only, and
+ * config.ts imports it.
+ */
+export const PROGRAM_ID_STRING =
+  process.env.REKEY_PROGRAM_ID ?? "CuNNoYhAJsGNKZzi7NbEZjVTR2T8GUZyNKMN8SUPzRhS";
+
+export const PROGRAM_ID = new PublicKey(PROGRAM_ID_STRING);
 
 export const WALLET_SEED = "wallet";
 export const VAULT_SEED = "vault";

@@ -132,9 +132,18 @@ export interface RecoveryPlan {
   accounts: Record<string, string>;
   args: Record<string, unknown>;
   description: string;
+  /** the public key that must sign this transaction */
   requiresSignatureFrom: string;
+  /**
+   * Always true. A 200 from the plan endpoint means "this action is
+   * well-formed", NEVER "this action will succeed". The on-chain program
+   * independently re-evaluates every rule at execution time.
+   */
+  advisoryOnly: true;
   /** advisory preview of what the program will enforce — never authorization */
   warnings: string[];
+  /** alias of `warnings`, added so the advisory nature is explicit */
+  advisoryWarnings?: string[];
 }
 
 export interface HealthResponse {
@@ -142,9 +151,27 @@ export interface HealthResponse {
   cluster: Cluster;
   programId: string;
   rpcReachable: boolean;
+  /** true when the program account exists and is executable on the target cluster */
+  programDeployed: boolean;
   ai: { configured: boolean; reachable: boolean; model?: string };
   version: string;
   time: number;
+}
+
+/**
+ * Identity resolution for a wallet.
+ *
+ * AR-02: a wallet is looked up by its INITIAL OWNER (the PDA seed), but the
+ * party acting on it may be the current owner or a guardian. This endpoint
+ * tells a client which role an address plays.
+ */
+export interface WalletIdentity {
+  initialOwner: string;
+  currentOwner: string;
+  isInitialOwner: boolean;
+  isCurrentOwner: boolean;
+  isGuardian: boolean;
+  guardianIndex: number | null;
 }
 
 export interface RewardsResponse {
