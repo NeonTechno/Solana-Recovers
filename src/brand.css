@@ -1,0 +1,193 @@
+:root {
+  --bg: oklch(0.14 0.015 85);
+  --panel: oklch(0.19 0.02 85);
+  --line: oklch(0.35 0.02 85);
+  --muted: oklch(0.67 0.01 85);
+  --purple: oklch(0.72 0.12 50);
+  --teal: oklch(0.76 0.13 155);
+  --foreground: oklch(0.97 0.01 85);
+  --primary-foreground: oklch(0.1 0 0);
+  --destructive: oklch(0.65 0.22 25);
+  --success: oklch(0.76 0.13 155);
+  --gradient-bg: linear-gradient(135deg, oklch(0.14 0.015 85) 0%, oklch(0.17 0.02 100) 100%);
+  --gradient-accent: linear-gradient(to right, oklch(0.72 0.12 50) 0%, oklch(0.74 0.13 80) 100%);
+  color: var(--foreground);
+  background-color: var(--bg);
+}
+
+body {
+  color: var(--foreground);
+  background-color: var(--bg);
+  background-image: var(--gradient-bg);
+}
+
+.app-shell,
+.main-area {
+  color: var(--foreground);
+  background: transparent;
+}
+
+.sidebar {
+  background: var(--bg);
+  border-color: var(--line);
+}
+
+.brand-mark {
+  background: var(--gradient-accent);
+}
+
+.stat-card,
+.panel,
+.connect-banner,
+.security-card {
+  background-color: var(--panel);
+  border-color: var(--line);
+}
+
+.stat-value,
+.readiness-score,
+.threshold-number,
+.policy-value {
+  font-family: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.notice-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--foreground);
+  line-height: 1.5;
+}
+
+.notice-banner.notice-error {
+  border-color: color-mix(in oklch, var(--destructive) 64%, var(--line));
+  background: color-mix(in oklch, var(--destructive) 13%, var(--panel));
+}
+
+.notice-banner.notice-success {
+  border-color: color-mix(in oklch, var(--success) 60%, var(--line));
+  background: color-mix(in oklch, var(--success) 12%, var(--panel));
+}
+
+.notice-banner.notice-info {
+  border-color: color-mix(in oklch, var(--purple) 55%, var(--line));
+  background: color-mix(in oklch, var(--purple) 10%, var(--panel));
+}
+
+.notice-banner > button {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.state-pill.state-threshold-met {
+  border-color: color-mix(in oklch, var(--purple) 62%, var(--line));
+  background: color-mix(in oklch, var(--purple) 16%, var(--panel));
+  color: var(--foreground);
+}
+
+.success-message {
+  border-color: color-mix(in oklch, var(--success) 55%, var(--line));
+  background: color-mix(in oklch, var(--success) 12%, var(--panel));
+  color: var(--foreground);
+}
+
+.success-message svg,
+.connected-label,
+.step-done {
+  color: var(--success);
+}
+
+.notification-wrap {
+  position: relative;
+}
+
+.notification-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  width: min(320px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--foreground);
+  box-shadow: 0 12px 32px color-mix(in oklch, var(--bg) 78%, transparent);
+}
+
+.notification-panel strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.notification-panel p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mobile-menu.icon-button,
+.mobile-close.icon-button,
+.icon-button,
+.copy-address,
+.text-action,
+.faucet-link,
+.cancel-button,
+.primary-button,
+.secondary-button,
+.wallet-connect-button.wallet-adapter-button,
+.nav-item,
+.notice-banner > button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.guardian-approve {
+  min-height: 64px;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 3px solid var(--purple);
+  outline-offset: 3px;
+}
+
+button:not(:disabled),
+a {
+  cursor: pointer;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out, transform 100ms ease-out;
+}
+
+button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+@media (max-width: 760px) {
+  .sidebar:not(.sidebar-open) {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .sidebar.sidebar-open {
+    visibility: visible;
+    pointer-events: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition: none !important;
+  }
+}

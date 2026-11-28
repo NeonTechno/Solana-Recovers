@@ -17,7 +17,12 @@ pub mod rekey_program {
         threshold: u8,
         delay_seconds: i64,
     ) -> Result<()> {
-        validate_policy(&guardians, threshold, delay_seconds, ctx.accounts.owner.key())?;
+        validate_policy(
+            &guardians,
+            threshold,
+            delay_seconds,
+            ctx.accounts.owner.key(),
+        )?;
 
         let wallet = &mut ctx.accounts.wallet_config;
         wallet.initial_owner = ctx.accounts.owner.key();
@@ -47,7 +52,12 @@ pub mod rekey_program {
         threshold: u8,
         delay_seconds: i64,
     ) -> Result<()> {
-        validate_policy(&guardians, threshold, delay_seconds, ctx.accounts.owner.key())?;
+        validate_policy(
+            &guardians,
+            threshold,
+            delay_seconds,
+            ctx.accounts.owner.key(),
+        )?;
 
         let wallet = &mut ctx.accounts.wallet_config;
         wallet.guardians = guardians;
@@ -76,7 +86,10 @@ pub mod rekey_program {
             wallet.guardians.contains(&initiator),
             RecoveryError::UnauthorizedGuardian
         );
-        require!(new_owner != Pubkey::default(), RecoveryError::InvalidNewOwner);
+        require!(
+            new_owner != Pubkey::default(),
+            RecoveryError::InvalidNewOwner
+        );
         require!(new_owner != wallet.owner, RecoveryError::SameOwner);
 
         let now = Clock::get()?.unix_timestamp;
@@ -120,35 +133,7 @@ pub mod rekey_program {
         let guardian = ctx.accounts.guardian.key();
         let request = &mut ctx.accounts.recovery_request;
         let now = Clock::get()?.unix_timestamp;
-
-        require!(
-            wallet.guardians.contains(&guardian),
-            RecoveryError::UnauthorizedGuardian
-        );
-        require!(
-            request.policy_version == wallet.policy_version,
-            RecoveryError::StalePolicy
-        );
-        require!(
-            request.status == RecoveryStatus::Pending,
-            RecoveryError::InvalidRecoveryState
-        );
-        require!(now <= request.expires_at, RecoveryError::RecoveryExpired);
-        require!(
-            !request.approvals.contains(&guardian),
-            RecoveryError::DuplicateApproval
-        );
-        require!(
-            request.approvals.len() < MAX_GUARDIANS,
-            RecoveryError::TooManyApprovals
-        );
-
-        request.approvals.push(guardian);
-        let approval_count = request.approvals.len() as u8;
-
-        if approval_count >= wallet.threshold {
-            request.status = RecoveryStatus::Approved;
-        }
+        let approval_count = record_guardian_approval(wallet, request, guardian, now)?;
 
         emit!(GuardianApproved {
             wallet: wallet.key(),
@@ -164,25 +149,7 @@ pub mod rekey_program {
         let wallet = &mut ctx.accounts.wallet_config;
         let request = &mut ctx.accounts.recovery_request;
         let now = Clock::get()?.unix_timestamp;
-
-        require!(
-            request.policy_version == wallet.policy_version,
-            RecoveryError::StalePolicy
-        );
-        require!(
-            request.status == RecoveryStatus::Approved,
-            RecoveryError::ThresholdNotReached
-        );
-        require!(
-            request.approvals.len() >= wallet.threshold as usize,
-            RecoveryError::ThresholdNotReached
-        );
-        require!(now >= request.execute_after, RecoveryError::TimelockActive);
-        require!(now <= request.expires_at, RecoveryError::RecoveryExpired);
-
-        let previous_owner = wallet.owner;
-        wallet.owner = request.new_owner;
-        request.status = RecoveryStatus::Executed;
+        let previous_owner = execute_recovery_transition(wallet, request, now)?;
 
         emit!(RecoveryExecuted {
             wallet: wallet.key(),
@@ -197,15 +164,7 @@ pub mod rekey_program {
     pub fn cancel_recovery(ctx: Context<CancelRecovery>) -> Result<()> {
         let request = &mut ctx.accounts.recovery_request;
         let now = Clock::get()?.unix_timestamp;
-
-        require!(
-            request.status == RecoveryStatus::Pending
-                || request.status == RecoveryStatus::Approved,
-            RecoveryError::InvalidRecoveryState
-        );
-        require!(now < request.execute_after, RecoveryError::TimelockElapsed);
-
-        request.status = RecoveryStatus::Cancelled;
+        cancel_recovery_transition(request, now)?;
         emit!(RecoveryCancelled {
             wallet: request.wallet_config,
             request: request.key(),
@@ -217,15 +176,7 @@ pub mod rekey_program {
     pub fn expire_recovery(ctx: Context<ExpireRecovery>) -> Result<()> {
         let request = &mut ctx.accounts.recovery_request;
         let now = Clock::get()?.unix_timestamp;
-
-        require!(
-            request.status == RecoveryStatus::Pending
-                || request.status == RecoveryStatus::Approved,
-            RecoveryError::InvalidRecoveryState
-        );
-        require!(now > request.expires_at, RecoveryError::RecoveryNotExpired);
-
-        request.status = RecoveryStatus::Expired;
+        expire_recovery_transition(request, now)?;
         Ok(())
     }
 
@@ -242,18 +193,15 @@ pub mod rekey_program {
 
         let mut vault_lamports = vault_info.try_borrow_mut_lamports()?;
         let mut recipient_lamports = recipient_info.try_borrow_mut_lamports()?;
+        let (vault_after, recipient_after) = calculate_withdrawal_balances(
+            **vault_lamports,
+            **recipient_lamports,
+            amount,
+            rent_floor,
+        )?;
 
-        require!(
-            **vault_lamports >= amount.saturating_add(rent_floor),
-            RecoveryError::InsufficientFunds
-        );
-
-        **vault_lamports = (**vault_lamports)
-            .checked_sub(amount)
-            .ok_or(RecoveryError::ArithmeticOverflow)?;
-        **recipient_lamports = (**recipient_lamports)
-            .checked_add(amount)
-            .ok_or(RecoveryError::ArithmeticOverflow)?;
+        **vault_lamports = vault_after;
+        **recipient_lamports = recipient_after;
 
         emit!(SolWithdrawn {
             wallet: ctx.accounts.wallet_config.key(),
@@ -291,6 +239,107 @@ fn validate_policy(
         );
     }
     Ok(())
+}
+
+fn record_guardian_approval(
+    wallet: &WalletConfig,
+    request: &mut RecoveryRequest,
+    guardian: Pubkey,
+    now: i64,
+) -> Result<u8> {
+    require!(
+        wallet.guardians.contains(&guardian),
+        RecoveryError::UnauthorizedGuardian
+    );
+    require!(
+        request.policy_version == wallet.policy_version,
+        RecoveryError::StalePolicy
+    );
+    require!(
+        request.status == RecoveryStatus::Pending,
+        RecoveryError::InvalidRecoveryState
+    );
+    require!(now <= request.expires_at, RecoveryError::RecoveryExpired);
+    require!(
+        !request.approvals.contains(&guardian),
+        RecoveryError::DuplicateApproval
+    );
+    require!(
+        request.approvals.len() < MAX_GUARDIANS,
+        RecoveryError::TooManyApprovals
+    );
+
+    request.approvals.push(guardian);
+    let approval_count = request.approvals.len() as u8;
+    if approval_count >= wallet.threshold {
+        request.status = RecoveryStatus::Approved;
+    }
+    Ok(approval_count)
+}
+
+fn execute_recovery_transition(
+    wallet: &mut WalletConfig,
+    request: &mut RecoveryRequest,
+    now: i64,
+) -> Result<Pubkey> {
+    require!(
+        request.policy_version == wallet.policy_version,
+        RecoveryError::StalePolicy
+    );
+    require!(
+        request.status == RecoveryStatus::Approved,
+        RecoveryError::ThresholdNotReached
+    );
+    require!(
+        request.approvals.len() >= wallet.threshold as usize,
+        RecoveryError::ThresholdNotReached
+    );
+    require!(now >= request.execute_after, RecoveryError::TimelockActive);
+    require!(now <= request.expires_at, RecoveryError::RecoveryExpired);
+
+    let previous_owner = wallet.owner;
+    wallet.owner = request.new_owner;
+    request.status = RecoveryStatus::Executed;
+    Ok(previous_owner)
+}
+
+fn cancel_recovery_transition(request: &mut RecoveryRequest, now: i64) -> Result<()> {
+    require!(
+        request.status == RecoveryStatus::Pending || request.status == RecoveryStatus::Approved,
+        RecoveryError::InvalidRecoveryState
+    );
+    require!(now < request.execute_after, RecoveryError::TimelockElapsed);
+
+    request.status = RecoveryStatus::Cancelled;
+    Ok(())
+}
+
+fn expire_recovery_transition(request: &mut RecoveryRequest, now: i64) -> Result<()> {
+    require!(
+        request.status == RecoveryStatus::Pending || request.status == RecoveryStatus::Approved,
+        RecoveryError::InvalidRecoveryState
+    );
+    require!(now > request.expires_at, RecoveryError::RecoveryNotExpired);
+
+    request.status = RecoveryStatus::Expired;
+    Ok(())
+}
+
+fn calculate_withdrawal_balances(
+    vault_lamports: u64,
+    recipient_lamports: u64,
+    amount: u64,
+    rent_floor: u64,
+) -> Result<(u64, u64)> {
+    let vault_after = vault_lamports
+        .checked_sub(amount)
+        .ok_or(RecoveryError::InsufficientFunds)?;
+    require!(vault_after >= rent_floor, RecoveryError::InsufficientFunds);
+
+    let recipient_after = recipient_lamports
+        .checked_add(amount)
+        .ok_or(RecoveryError::ArithmeticOverflow)?;
+    Ok((vault_after, recipient_after))
 }
 
 #[derive(Accounts)]
@@ -502,7 +551,7 @@ impl RecoveryRequest {
     pub const SPACE: usize = 8 + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 4 + (MAX_GUARDIANS * 32) + 1 + 1;
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RecoveryStatus {
     Pending,
     Approved,
@@ -616,13 +665,41 @@ pub enum RecoveryError {
     ArithmeticOverflow,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn key(seed: u8) -> Pubkey {
         Pubkey::new_from_array([seed; 32])
+    }
+
+    fn wallet_config() -> WalletConfig {
+        WalletConfig {
+            initial_owner: key(1),
+            owner: key(1),
+            guardians: vec![key(2), key(3), key(4)],
+            threshold: 2,
+            delay_seconds: MIN_DELAY_SECONDS,
+            next_nonce: 0,
+            policy_version: 1,
+            bump: 1,
+        }
+    }
+
+    fn recovery_request(wallet: &WalletConfig) -> RecoveryRequest {
+        let execute_after = 1_000 + wallet.delay_seconds;
+        RecoveryRequest {
+            wallet_config: key(8),
+            new_owner: key(5),
+            nonce: 0,
+            policy_version: wallet.policy_version,
+            created_at: 1_000,
+            execute_after,
+            expires_at: execute_after + REQUEST_GRACE_SECONDS,
+            approvals: Vec::new(),
+            status: RecoveryStatus::Pending,
+            bump: 1,
+        }
     }
 
     #[test]
@@ -659,5 +736,133 @@ mod tests {
         let guardians = vec![key(2), key(3)];
         assert!(validate_policy(&guardians, 2, 30, key(1)).is_err());
         assert!(validate_policy(&guardians, 2, 31 * 24 * 60 * 60, key(1)).is_err());
+    }
+
+    #[test]
+    fn approvals_require_registered_distinct_guardians_and_reach_threshold() {
+        let wallet = wallet_config();
+        let mut request = recovery_request(&wallet);
+
+        assert!(record_guardian_approval(&wallet, &mut request, key(9), 1_001).is_err());
+        assert_eq!(
+            record_guardian_approval(&wallet, &mut request, key(2), 1_001).unwrap(),
+            1
+        );
+        assert_eq!(request.status, RecoveryStatus::Pending);
+        assert!(record_guardian_approval(&wallet, &mut request, key(2), 1_002).is_err());
+        assert_eq!(
+            record_guardian_approval(&wallet, &mut request, key(3), 1_003).unwrap(),
+            2
+        );
+        assert_eq!(request.status, RecoveryStatus::Approved);
+    }
+
+    #[test]
+    fn approvals_reject_stale_policy_and_expired_requests() {
+        let wallet = wallet_config();
+        let mut stale_request = recovery_request(&wallet);
+        stale_request.policy_version += 1;
+        assert!(record_guardian_approval(&wallet, &mut stale_request, key(2), 1_001).is_err());
+
+        let mut expired_request = recovery_request(&wallet);
+        expired_request.expires_at = 1_000;
+        assert!(record_guardian_approval(&wallet, &mut expired_request, key(2), 1_001).is_err());
+    }
+
+    #[test]
+    fn execution_requires_threshold_and_timelock_then_changes_owner_once() {
+        let mut wallet = wallet_config();
+        let mut request = recovery_request(&wallet);
+        request.status = RecoveryStatus::Approved;
+        request.approvals.push(key(2));
+
+        let execute_after = request.execute_after;
+        assert!(execute_recovery_transition(&mut wallet, &mut request, execute_after).is_err());
+        request.approvals.push(key(3));
+        assert!(execute_recovery_transition(&mut wallet, &mut request, execute_after - 1).is_err());
+        assert_eq!(wallet.owner, key(1));
+        assert_eq!(request.status, RecoveryStatus::Approved);
+
+        let previous_owner =
+            execute_recovery_transition(&mut wallet, &mut request, execute_after).unwrap();
+        assert_eq!(previous_owner, key(1));
+        assert_eq!(wallet.owner, key(5));
+        assert_eq!(request.status, RecoveryStatus::Executed);
+        assert!(execute_recovery_transition(&mut wallet, &mut request, execute_after).is_err());
+    }
+
+    #[test]
+    fn execution_rejects_stale_and_expired_requests_without_mutation() {
+        let mut wallet = wallet_config();
+        let mut stale_request = recovery_request(&wallet);
+        stale_request.status = RecoveryStatus::Approved;
+        stale_request.approvals = vec![key(2), key(3)];
+        stale_request.policy_version += 1;
+        let stale_execute_after = stale_request.execute_after;
+        assert!(
+            execute_recovery_transition(&mut wallet, &mut stale_request, stale_execute_after)
+                .is_err()
+        );
+        assert_eq!(wallet.owner, key(1));
+
+        let mut expired_request = recovery_request(&wallet);
+        expired_request.status = RecoveryStatus::Approved;
+        expired_request.approvals = vec![key(2), key(3)];
+        let now = expired_request.expires_at + 1;
+        assert!(execute_recovery_transition(&mut wallet, &mut expired_request, now).is_err());
+        assert_eq!(wallet.owner, key(1));
+        assert_eq!(expired_request.status, RecoveryStatus::Approved);
+    }
+
+    #[test]
+    fn owner_cancellation_is_allowed_before_but_not_after_the_timelock() {
+        let wallet = wallet_config();
+        let mut cancellable = recovery_request(&wallet);
+        cancellable.status = RecoveryStatus::Approved;
+        let cancellable_execute_after = cancellable.execute_after;
+        assert!(
+            cancel_recovery_transition(&mut cancellable, cancellable_execute_after - 1).is_ok()
+        );
+        assert_eq!(cancellable.status, RecoveryStatus::Cancelled);
+
+        let mut elapsed = recovery_request(&wallet);
+        elapsed.status = RecoveryStatus::Approved;
+        let elapsed_execute_after = elapsed.execute_after;
+        assert!(cancel_recovery_transition(&mut elapsed, elapsed_execute_after).is_err());
+        assert_eq!(elapsed.status, RecoveryStatus::Approved);
+    }
+
+    #[test]
+    fn expiry_requires_time_strictly_after_the_expiry_boundary() {
+        let wallet = wallet_config();
+        let mut request = recovery_request(&wallet);
+        request.status = RecoveryStatus::Approved;
+
+        let expires_at = request.expires_at;
+        assert!(expire_recovery_transition(&mut request, expires_at).is_err());
+        assert_eq!(request.status, RecoveryStatus::Approved);
+        assert!(expire_recovery_transition(&mut request, expires_at + 1).is_ok());
+        assert_eq!(request.status, RecoveryStatus::Expired);
+        assert!(expire_recovery_transition(&mut request, expires_at + 2).is_err());
+    }
+
+    #[test]
+    fn withdrawal_must_preserve_rent_floor_at_saturating_add_boundary() {
+        let vault_lamports = u64::MAX;
+        let amount = u64::MAX - 1;
+        let rent_floor = 2;
+
+        assert!(calculate_withdrawal_balances(vault_lamports, 0, amount, rent_floor).is_err());
+    }
+
+    #[test]
+    fn withdrawal_calculates_both_balances_before_mutation() {
+        assert_eq!(
+            calculate_withdrawal_balances(1_000, 200, 600, 400).unwrap(),
+            (400, 800)
+        );
+        assert!(calculate_withdrawal_balances(1_000, 200, 600, 401).is_err());
+        assert!(calculate_withdrawal_balances(500, 200, 600, 100).is_err());
+        assert!(calculate_withdrawal_balances(1_000, u64::MAX, 1, 400).is_err());
     }
 }
