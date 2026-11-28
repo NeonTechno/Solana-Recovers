@@ -91,12 +91,24 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin ci-artifacts --depth 1 || true
-          git checkout -B ci-artifacts origin/ci-artifacts 2>/dev/null || git checkout --orphan ci-artifacts
-          git rm -rf --quiet . 2>/dev/null || true
+          # Create or update the dedicated artifact branch in one shot.
+          rm -rf .artifact-branch
+          mkdir -p .artifact-branch
+          cd .artifact-branch
+          git init -q
+          git remote add origin \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch -q --depth 1 origin ci-artifacts 2>/dev/null || true
+          if git rev-parse --verify origin/ci-artifacts >/dev/null 2>&1; then
+            git checkout -q -B ci-artifacts origin/ci-artifacts
+          else
+            git checkout -q --orphan ci-artifacts
+            git rm -rf --quiet . 2>/dev/null || true
+          fi
           mkdir -p artifacts
           cp "$GITHUB_WORKSPACE/artifacts/rekey_program.so" artifacts/rekey_program.so
-          sha256sum artifacts/rekey_program.so > artifacts/rekey_program.so.sha256
+          ( cd artifacts && sha256sum rekey_program.so > rekey_program.so.sha256 )
           git add -f artifacts/rekey_program.so artifacts/rekey_program.so.sha256
-          git commit -m "ci: SBF artifact $(date -u +%Y%m%d-%H%M%S)"
+          git commit -q -m "ci: SBF artifact $(date -u +%Y%m%d-%H%M%S)"
           git push origin ci-artifacts
+          echo "PUBLISHED $(git rev-parse HEAD)"
