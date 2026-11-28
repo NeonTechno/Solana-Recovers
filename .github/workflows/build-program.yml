@@ -84,20 +84,46 @@ jobs:
       # Publish the binary to the public `ci-artifacts` branch so it can be fetched
       # over plain HTTPS without API auth. This is how the Devnet deployment step
       # obtains the program artifact.
-      - name: Publish SBF artifact to public branch
+      - name: Publish SBF artifact to a GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euxo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # actions/checkout already configures the token in the request extraheader,
-          # so the remote URL must be left alone - rewriting it to a token URL is
-          # what made earlier attempts fail.
-          mkdir -p artifacts
-          cp "$GITHUB_WORKSPACE/artifacts/rekey_program.so" artifacts/rekey_program.so
-          sha256sum artifacts/rekey_program.so > artifacts/rekey_program.so.sha256
-          git add -f artifacts/rekey_program.so artifacts/rekey_program.so.sha256
-          git commit -m "ci: SBF artifact $(date -u +%Y%m%d-%H%M%S)"
-          git push origin HEAD:refs/heads/ci-artifacts
-          echo "PUBLISHED $(git rev-parse HEAD)"
+          # A release asset is downloadable over plain HTTPS without API auth
+          # (the release page is public for a public repo), which is how the
+          # Devnet deployment step obtains the program artifact.
+          TAG="sbf-latest"
+          # Create or update the release.
+          release_id=$(curl -sS -o /tmp/release.json -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases" \
+            -d "{\"tag_name\":\"${TAG}\",\"name\":\"ReKey SBF artifact (latest)\",\"body\":\"Automatically published by the Build Program workflow.\",\"prerelease\":true}")
+          if [ "$release_id" = "201" ]; then
+            id=$(python3 -c 'import json;print(json.load(open("/tmp/release.json"))["id"])')
+          else
+            id=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" \
+              | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+          fi
+          echo "RELEASE_ID=$id"
+          # Upload the asset (delete any previous one first).
+          curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${id}/assets" \
+            | python3 -c 'import sys,json;[print(a["id"]) for a in json.load(sys.stdin)]' \
+            | while read -r asset; do
+              curl -sS -X DELETE -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/assets/${asset}"
+            done
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@${GITHUB_WORKSPACE}/artifacts/rekey_program.so" \
+            "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${id}/assets?name=rekey_program.so"
+          echo
+          sha256sum "$GITHUB_WORKSPACE/artifacts/rekey_program.so"
