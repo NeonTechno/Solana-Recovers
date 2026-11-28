@@ -88,22 +88,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -x
+          set -euxo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote set-url origin \
             "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git fetch origin ci-artifacts || true
-          if git rev-parse --verify FETCH_HEAD >/dev/null 2>&1; then
-            git checkout -B ci-artifacts FETCH_HEAD
-          else
-            git checkout --orphan ci-artifacts
-            git rm -rf --quiet . || true
-          fi
+          git checkout --orphan ci-artifacts
+          git rm -rf --quiet . || true
           mkdir -p artifacts
           cp "$GITHUB_WORKSPACE/artifacts/rekey_program.so" artifacts/rekey_program.so
-          cd artifacts && sha256sum rekey_program.so > rekey_program.so.sha256 && cd ..
-          git add -f artifacts
-          git commit -m "ci: SBF artifact $(date -u +%Y%m%d-%H%M%S)"
-          git push origin ci-artifacts
+          sha256sum artifacts/rekey_program.so > artifacts/rekey_program.so.sha256
+          git add -f artifacts/rekey_program.so artifacts/rekey_program.so.sha256
+          git commit -m "ci: SBF artifact"
+          git push origin HEAD:refs/heads/ci-artifacts
           echo "PUBLISHED $(git rev-parse HEAD)"
