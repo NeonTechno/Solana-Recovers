@@ -32,9 +32,6 @@ jobs:
   server:
     name: Application API, MCP and AI tests
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: server
     steps:
       - uses: actions/checkout@v4
 
@@ -43,11 +40,17 @@ jobs:
           node-version: 22
 
       # The server package lives on feature/backend-mcp-ai. On branches without
-      # it the job is skipped rather than failing the whole workflow.
+      # it the job is skipped rather than failing the whole workflow. The
+      # working directory is set per step, not job-wide, because the directory
+      # does not exist on those branches.
       - name: Detect the server package
         id: detect
         run: |
-          if [ -f package.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+          if [ -f server/package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Cache npm
         if: steps.detect.outputs.present == 'true'
@@ -58,18 +61,22 @@ jobs:
 
       - name: Install dependencies
         if: steps.detect.outputs.present == 'true'
+        working-directory: server
         run: npm ci --no-audit --no-fund
 
       - name: Dependency audit (fail on high severity)
         if: steps.detect.outputs.present == 'true'
+        working-directory: server
         run: npm audit --audit-level=high
 
       - name: Typecheck
         if: steps.detect.outputs.present == 'true'
+        working-directory: server
         run: npx tsc --noEmit -p tsconfig.json
 
       - name: Test
         if: steps.detect.outputs.present == 'true'
+        working-directory: server
         run: node --experimental-strip-types --test test/*.test.ts
 
   solana-program:
