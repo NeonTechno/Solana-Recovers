@@ -1,0 +1,82 @@
+name: Build Program
+
+# Builds the ReKey Anchor program to an SBF artifact and uploads it.
+#
+# Why this exists: the local macOS 11 host cannot SBF-build the program because the
+# Solana platform-tools `rustc_driver` links against a libc++ typeinfo symbol
+# (`__ZTTNSt3__118basic_stringstream...`) that macOS 11's `/usr/lib/libc++.1.dylib`
+# does not export. This is a host-OS limitation, not a project defect, so the SBF
+# build runs on Linux in CI instead. See docs/engineering-handoff.md blocker B1.
+
+on:
+  push:
+    branches: [main, agents/hermes-lead, feature/*]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-program:
+    name: SBF build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo + platform-tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/solana
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: sbf-${{ runner.os }}-${{ hashFiles('programs/rekey/Cargo.toml', 'Cargo.toml') }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Install Anchor CLI
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor --tag v0.31.1 anchor-cli --locked
+
+      - name: Cache Anchor
+        id: cache-anchor
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/anchor
+            ~/.cargo/bin/anchor
+          key: anchor-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Verify Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Compile program crate
+        run: cargo check --manifest-path programs/rekey/Cargo.toml
+
+      - name: Run policy unit tests
+        run: cargo test --manifest-path programs/rekey/Cargo.toml
+
+      - name: Build SBF artifact
+        run: |
+          mkdir -p artifacts
+          cargo build-sbf --manifest-path programs/rekey/Cargo.toml
+          cp target/deploy/rekey_program.so artifacts/rekey_program.so
+          ls -la artifacts/
+
+      - name: Upload SBF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rekey-program-sbf
+          path: artifacts/rekey_program.so
+          retention-days: 30

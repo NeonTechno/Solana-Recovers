@@ -1,0 +1,11 @@
+# The ReKey logo is a binary JPEG. Never treat it as text.
+logo/*.jpg binary
+logo/*[!.] binary
+
+# Normalize line endings for source
+*.rs text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
