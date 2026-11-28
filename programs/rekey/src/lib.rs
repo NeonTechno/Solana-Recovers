@@ -177,6 +177,11 @@ pub mod rekey_program {
         let request = &mut ctx.accounts.recovery_request;
         let now = Clock::get()?.unix_timestamp;
         expire_recovery_transition(request, now)?;
+
+        emit!(RecoveryExpired {
+            wallet: request.wallet_config,
+            request: request.key(),
+        });
         Ok(())
     }
 
@@ -260,6 +265,10 @@ fn record_guardian_approval(
         RecoveryError::InvalidRecoveryState
     );
     require!(now <= request.expires_at, RecoveryError::RecoveryExpired);
+    // The owner's cancellation window is `now < execute_after`. Approvals must be
+    // collected inside that same window, otherwise a request could become
+    // Approved after the owner has already lost the ability to cancel it.
+    require!(now < request.execute_after, RecoveryError::TimelockActive);
     require!(
         !request.approvals.contains(&guardian),
         RecoveryError::DuplicateApproval
@@ -296,6 +305,19 @@ fn execute_recovery_transition(
     );
     require!(now >= request.execute_after, RecoveryError::TimelockActive);
     require!(now <= request.expires_at, RecoveryError::RecoveryExpired);
+
+    // Re-check at execution time. The owner may have changed since this request
+    // was created (a recovery does not bump the policy version), so a request
+    // created against a different owner must not silently revert ownership.
+    require!(request.new_owner != wallet.owner, RecoveryError::SameOwner);
+
+    // Only the most recently created request may execute. Without this, several
+    // concurrent requests could each reach Approved and the last one executed
+    // would silently decide the owner. A newer request supersedes older ones.
+    require!(
+        request.nonce + 1 == wallet.next_nonce,
+        RecoveryError::SupersededRequest
+    );
 
     let previous_owner = wallet.owner;
     wallet.owner = request.new_owner;
@@ -446,9 +468,13 @@ pub struct ExecuteRecovery<'info> {
 
 #[derive(Accounts)]
 pub struct CancelRecovery<'info> {
+    /// The wallet's initial owner. It is also the `WalletConfig` PDA seed, so the
+    /// seed constraint below is proven against an account the caller cannot forge.
     #[account(
-        seeds = [b"wallet", wallet_config.initial_owner.as_ref()],
+        mut,
+        seeds = [b"wallet", owner.key().as_ref()],
         bump = wallet_config.bump,
+        constraint = wallet_config.initial_owner == owner.key() @ RecoveryError::Unauthorized,
         constraint = wallet_config.owner == owner.key() @ RecoveryError::Unauthorized
     )]
     pub wallet_config: Account<'info, WalletConfig>,
@@ -488,9 +514,13 @@ pub struct ExpireRecovery<'info> {
 
 #[derive(Accounts)]
 pub struct WithdrawSol<'info> {
+    /// The wallet's initial owner. It is also the `WalletConfig` PDA seed, so the
+    /// seed constraint below is proven against an account the caller cannot forge.
     #[account(
-        seeds = [b"wallet", wallet_config.initial_owner.as_ref()],
+        mut,
+        seeds = [b"wallet", owner.key().as_ref()],
         bump = wallet_config.bump,
+        constraint = wallet_config.initial_owner == owner.key() @ RecoveryError::Unauthorized,
         constraint = wallet_config.owner == owner.key() @ RecoveryError::Unauthorized
     )]
     pub wallet_config: Account<'info, WalletConfig>,
@@ -611,6 +641,12 @@ pub struct RecoveryExecuted {
 }
 
 #[event]
+pub struct RecoveryExpired {
+    pub wallet: Pubkey,
+    pub request: Pubkey,
+}
+
+#[event]
 pub struct SolWithdrawn {
     pub wallet: Pubkey,
     pub recipient: Pubkey,
@@ -655,6 +691,8 @@ pub enum RecoveryError {
     TimelockElapsed,
     #[msg("The recovery request was created under an outdated guardian policy.")]
     StalePolicy,
+    #[msg("A newer recovery request exists; this one has been superseded.")]
+    SupersededRequest,
     #[msg("The wallet vault does not have enough spendable SOL.")]
     InsufficientFunds,
     #[msg("The transfer amount must be greater than zero.")]
@@ -680,7 +718,8 @@ mod tests {
             guardians: vec![key(2), key(3), key(4)],
             threshold: 2,
             delay_seconds: MIN_DELAY_SECONDS,
-            next_nonce: 0,
+            // One request has been created, so nonce 0 is the newest request.
+            next_nonce: 1,
             policy_version: 1,
             bump: 1,
         }
@@ -700,6 +739,72 @@ mod tests {
             status: RecoveryStatus::Pending,
             bump: 1,
         }
+    }
+
+    #[test]
+    fn expiry_cannot_destroy_a_request_while_it_is_still_executable() {
+        // An approved request remains executable until `expires_at`. A
+        // permissionless caller must not be able to expire it early and deny
+        // recovery. Expiry only becomes possible strictly after the deadline.
+        let wallet = wallet_config();
+        let mut request = recovery_request(&wallet);
+        request.status = RecoveryStatus::Approved;
+        request.approvals.push(key(2));
+
+        let at_deadline = request.expires_at;
+        assert!(expire_recovery_transition(&mut request, at_deadline).is_err());
+        assert_eq!(request.status, RecoveryStatus::Approved);
+
+        let after_deadline = request.expires_at + 1;
+        assert!(expire_recovery_transition(&mut request, after_deadline).is_ok());
+        assert_eq!(request.status, RecoveryStatus::Expired);
+    }
+
+    #[test]
+    fn approvals_must_land_inside_the_cancellation_window() {
+        // SR-01: the owner can only cancel while `now < execute_after`. An
+        // approval after that point would create an unstoppable request.
+        let wallet = wallet_config();
+        let mut request = recovery_request(&wallet);
+
+        let inside = request.execute_after - 1;
+        assert!(record_guardian_approval(&wallet, &mut request, key(2), inside).is_ok());
+
+        let mut late = recovery_request(&wallet);
+        let after = late.execute_after + 1;
+        assert!(record_guardian_approval(&wallet, &mut late, key(2), after).is_err());
+    }
+
+    #[test]
+    fn a_superseded_request_cannot_execute() {
+        // SR-02: only the newest request may execute, so two concurrent
+        // requests cannot both decide the owner.
+        let mut wallet = wallet_config();
+        wallet.next_nonce = 2; // a newer request (nonce 1) now exists
+
+        let mut request = recovery_request(&wallet);
+        request.status = RecoveryStatus::Approved;
+        request.approvals.push(key(2));
+        request.approvals.push(key(3));
+
+        let now = request.execute_after;
+        assert!(execute_recovery_transition(&mut wallet, &mut request, now).is_err());
+        assert_eq!(wallet.owner, key(1));
+    }
+
+    #[test]
+    fn execution_refuses_to_revert_to_the_current_owner() {
+        // SR-04: `new_owner != wallet.owner` must be re-checked at execution.
+        let mut wallet = wallet_config();
+        let mut request = recovery_request(&wallet);
+        request.status = RecoveryStatus::Approved;
+        request.approvals.push(key(2));
+        request.approvals.push(key(3));
+        request.new_owner = wallet.owner;
+
+        let now = request.execute_after;
+        assert!(execute_recovery_transition(&mut wallet, &mut request, now).is_err());
+        assert_eq!(wallet.owner, key(1));
     }
 
     #[test]
