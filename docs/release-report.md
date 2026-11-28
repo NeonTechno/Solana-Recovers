@@ -218,6 +218,28 @@ the UI.
    helper-function tests. They never construct an `Accounts` context, never
    derive a PDA and never execute an instruction. The full P0/P1/P2 list is in
    `docs/security-review.md` §7 — this is a hard release gate before real funds.
+
+   **Why it is still open.** Two independent attempts were made and both were
+   abandoned after full diagnosis:
+
+   - `solana-test-validator` dies with **SIGILL** on this host's CPU (macOS 11),
+     immediately after the faucet and admin RPC services start.
+   - The **LiteSVM** replacement hits an upstream dependency-graph type skew in
+     `solana-address` (2.x) vs `solana-pubkey` (4.x): although `solana-pubkey`
+     re-exports `solana_address::Address`, different parents pull the two crates
+     in at different versions, so `AccountMeta::new` wants a `Pubkey` that is not
+     the same type as LiteSVM's `Address`. Compounding it, `solana-keypair` 3.1.2
+     (pinned by litesvm) requires `solana-signature` 3.3.x while the resolved graph
+     selects 3.5.2, whose error type rejects `five8`'s `DecodeError` (E0277).
+     Every pin combination was tried and recorded in `docs/engineering-handoff.md`
+     blocker B7.
+
+   **This is upstream, not a ReKey defect.** The recommended fix is to run the
+   integration suite in CI on `ubuntu-latest`, where the Solana toolchain is
+   pinned and the version matrix is resolved by the platform rather than by hand.
+   The suite itself was written (7 tests covering initialization, policy updates,
+   guardian approval, cancellation, the SR-01 approval window, the SR-02
+   superseded-request rule and owner-only withdrawal) and is ready to port.
 3. **The vault holds SOL only.** No SPL Token or Token-2022 custody.
 4. **No passkeys.** The guardian path uses ordinary Solana signatures. Never
    claim WebAuthn support.

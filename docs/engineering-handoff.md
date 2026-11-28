@@ -149,6 +149,7 @@ output is not evidence.
 | B3 | The `logo/` directory was **untracked** in git. | The logo the brief requires was not in the repository. | Hermes | **RESOLVED** — committed on `agents/hermes-lead` with a correctly-named `logo/rekey-logo.jpg` copy and `.gitattributes` marking it binary. Junie copied the identical bytes to `public/rekey-logo.jpg` (SHA-256 verified). |
 | B4 | The program's `Cargo.toml` declares only `crate-type = ["cdylib"]`. | Would block the SBF build if real. | Hermes | **NOT A DEFECT.** The crate-type is correct for a Solana program; the earlier "two crate types" message came from the *host* `cargo` picking up the workspace `lib` target, not from the SBF build. The CI SBF build succeeds. |
 | B5 | The Devnet faucet now requires GitHub sign-in, and the public RPC faucet is closed (`410 The RPC faucet is closed on this cluster`). | The deploy wallet cannot be funded from this machine. | Hermes | **OPEN.** The deploy keypair exists (`~/.config/solana/rekey-program-keypair.json`, program id `CuNNoYhAJsGNKZzi7NbEZjVTR2T8GUZyNKMN8SUPzRhS`) but has 0 SOL. Needs either a GitHub-signed faucet request (which needs B2) or 2 SOL transferred in from an already-funded devnet account. |
+| B6 | `solana-test-validator` dies with **SIGILL** on this host immediately after startup (it reaches "Faucet started" and "admin rpc service started", then aborts on an illegal instruction). The macOS 11 CPU does not support an instruction the Agave 4.4.1 validator requires. | A local validator cannot be used for on-chain integration testing on this machine. | Hermes | **OPEN.** The LiteSVM replacement was attempted and abandoned - see B7. |
 
 ## 9. Decisions
 
@@ -200,7 +201,9 @@ and the expiry boundary.
 tests cover the guardian-actor check, the resolve endpoint and the
 `programDeployed` health signal.
 
-## 11. Communication protocol
+| B7 | **LiteSVM 0.18.2 has an upstream dependency-graph type skew** that prevents a LiteSVM integration suite from compiling. | The program still has no *integration* tests - only unit tests of the pure helper functions. | Hermes | **OPEN, documented.** Root cause, fully diagnosed: `solana-address` is on the 2.x line while `solana-pubkey` is on the 4.x line, and although `solana-pubkey` re-exports `solana_address::Address`, the two crates are pulled in at *different versions* by different parents, so `AccountMeta::new` wants a `Pubkey` that is not the same type as LiteSVM's `Address`. Compounding it: `solana-keypair` 3.1.2 (pinned by litesvm) requires `solana-signature` 3.3.x, but the resolved graph selects 3.5.2, whose error type no longer accepts `five8`'s `DecodeError` (E0277). Every pin combination tried failed: `solana-signature =3.3.0` (conflicts with litesvm's `~3.5.2`), `solana-keypair 4.0.1` (wants signature `^3.6.0`), `solana-keypair 4.0.0` + `solana-transaction ~4.2.0` + `solana-instruction 3.5.1` (resolves, but the `Address`/`Pubkey` split remains). **This is upstream, not a ReKey defect.** The recommended fix is to run the integration suite in CI on `ubuntu-latest`, where the Solana toolchain is pinned and the version matrix is resolved by the platform rather than by hand. Until then the program has 19 unit tests and **no integration tests** - this is a hard release gate before real funds, as recorded in `docs/security-review.md` section 7. |
+
+## 10. Communication protocol
 
 - **All agent communication goes through GitHub** (issues/PRs) and the coordination
   inbox at `/Users/user/solana-recovers-coordination/messages/inbox/`.
