@@ -48,11 +48,15 @@ $ cargo test --manifest-path programs/rekey/Cargo.toml
 test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
-CI run **46118240511** — every step green:
+CI run **46121286010** (`Build Program`) — every step green:
 `Set up job · checkout · cache · Install Rust · Install Solana CLI · Install Anchor CLI ·
 cache · Verify Rust formatting · Compile program crate · Run policy unit tests ·
 Build SBF artifact · Upload SBF artifact · Publish SBF artifact to a GitHub release`
 → **all success**.
+
+CI run **46121696098** (`CI` on `agents/hermes-lead`) — **success**.
+CI run **46121702471** (`CI` on `feature/backend-mcp-ai`) — **success**, including the
+`server` job (dependency audit, strict typecheck, 56 tests).
 
 SBF artifact, downloaded and verified:
 ```
