@@ -133,19 +133,26 @@ export interface ApiErrorBody {
 }
 ```
 
-## 1. Application API — `GET /api/health`
+### `GET /api/health`
 
 ```json
 {
   "ok": true,
   "cluster": "devnet",
-  "programId": "284Xsc92KLKwKb7gBYAB8CXWc979FHL11tc185UYqcbP",
+  "programId": "CuNNoYhAJsGNKZzi7NbEZjVTR2T8GUZyNKMN8SUPzRhS",
   "rpcReachable": true,
+  "programDeployed": false,
   "ai": { "configured": true, "reachable": true, "model": "..." },
   "version": "1.0.0",
   "time": 1764300000
 }
 ```
+
+`ok` now reflects RPC reachability, and `programDeployed` reports whether the
+program account exists and is executable on the target cluster. **Changed in
+v1.0.1 (AR-01):** a health endpoint that cannot detect that it is talking to a
+non-existent program is not a health endpoint — a wrong program id makes every
+wallet read 404 while the health check still says "ok".
 
 `ai.reachable` is `false` (never an error) when the provider is missing or down — the
 service must still start and serve every non-AI route.
@@ -163,6 +170,19 @@ Requests are discovered by scanning the wallet's known nonces and reading each
 
 ### `GET /api/wallet/:address/recovery/requests/:nonce`
 Returns a single `RecoveryRequestView`. `404` if the PDA does not exist.
+
+### `GET /api/wallet/:address/resolve?actor=<base58>`
+Returns the role an address plays for a wallet. **Added in v1.0.1 (AR-02).**
+```json
+{
+  "initialOwner": "<base58>",
+  "currentOwner": "<base58>",
+  "isInitialOwner": false,
+  "isCurrentOwner": false,
+  "isGuardian": true,
+  "guardianIndex": 0
+}
+```
 
 ### `GET /api/wallet/:address/activity`
 Returns `{ "events": ActivityEvent[] }`, newest first, max 100.
@@ -193,12 +213,28 @@ Only a malformed request body returns `400`.
 Request:
 ```json
 {
-  "address": "<base58>",
+  "wallet": "<base58>",
+  "actor": "<base58>",
   "action": "initiate" | "approve" | "cancel" | "execute" | "expire",
   "newOwner"?: "<base58>",
   "nonce"?: 0
 }
 ```
+
+- **`wallet`** is the wallet **lookup key** — the *initial owner*, which is the
+  `WalletConfig` PDA seed.
+- **`actor`** is the public key **expected to sign**. It must be a registered
+  guardian for `initiate` and `approve`, and the **current** owner for `cancel`.
+- `address` is retained as a **deprecated alias** for `wallet` for one release.
+- When `actor` is omitted it defaults to `wallet`, which preserves the original
+  single-role behaviour for wallets that have never completed a recovery.
+
+> **Changed in v1.0.1 (AR-02).** Previously the single `address` field had to
+> serve both roles, which made guardian approval unbuildable through the API and
+> denied cancellation to a current owner who was not the initial owner. This is
+> an additive change plus a deprecation; `address` still works.
+
+Use `GET /api/wallet/:address/resolve?actor=<base58>` to discover an address's role.
 Response: a **prepared, unsigned instruction plan** for the frontend to sign:
 ```json
 {
@@ -209,9 +245,16 @@ Response: a **prepared, unsigned instruction plan** for the frontend to sign:
   "args": { "nonce": 0 },
   "description": "Guardian approves recovery request #0",
   "requiresSignatureFrom": "<guardian address>",
-  "warnings": ["The request is bound to policy version 1; the wallet policy is now version 2."]
+  "advisoryOnly": true,
+  "warnings": ["The request is bound to policy version 1; the wallet policy is now version 2."],
+  "advisoryWarnings": ["The request is bound to policy version 1; the wallet policy is now version 2."]
 }
 ```
+
+`advisoryOnly` is always `true`. **A 200 from this endpoint means the action is
+well-formed, never that the program will accept it.** The on-chain program
+independently re-evaluates every rule at execution time. `advisoryWarnings` is an
+alias of `warnings`, added so the advisory nature is explicit in the field name.
 
 This endpoint **does not sign and does not submit**. It only prepares. The frontend
 hands it to the wallet adapter. The `warnings` array carries *advisory* preview of
