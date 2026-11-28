@@ -32,9 +32,6 @@ jobs:
   server:
     name: Application API, MCP and AI tests
     runs-on: ubuntu-latest
-    # The server package lives on feature/backend-mcp-ai. Skip this job on
-    # branches that do not contain it rather than failing the whole workflow.
-    if: ${{ hashFiles('server/package.json') != '' }}
     defaults:
       run:
         working-directory: server
@@ -45,22 +42,34 @@ jobs:
         with:
           node-version: 22
 
+      # The server package lives on feature/backend-mcp-ai. On branches without
+      # it the job is skipped rather than failing the whole workflow.
+      - name: Detect the server package
+        id: detect
+        run: |
+          if [ -f package.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+
       - name: Cache npm
+        if: steps.detect.outputs.present == 'true'
         uses: actions/cache@v4
         with:
           path: server/node_modules
           key: server-npm-${{ hashFiles('server/package-lock.json') }}
 
       - name: Install dependencies
+        if: steps.detect.outputs.present == 'true'
         run: npm ci --no-audit --no-fund
 
       - name: Dependency audit (fail on high severity)
+        if: steps.detect.outputs.present == 'true'
         run: npm audit --audit-level=high
 
       - name: Typecheck
+        if: steps.detect.outputs.present == 'true'
         run: npx tsc --noEmit -p tsconfig.json
 
       - name: Test
+        if: steps.detect.outputs.present == 'true'
         run: node --experimental-strip-types --test test/*.test.ts
 
   solana-program:
