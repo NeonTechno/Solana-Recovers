@@ -18,6 +18,23 @@ export type RecoveryStatus =
   | "Executed"
   | "Expired";
 
+/**
+ * The instructions the Anchor program exposes.
+ *
+ * AR-03: the contract previously omitted `initialize_wallet`,
+ * `update_recovery_policy` and `withdraw_sol`, which made three real program
+ * instructions unreachable through the API and the MCP Gateway.
+ */
+export type RecoveryAction =
+  | "initialize_wallet"
+  | "update_recovery_policy"
+  | "initiate"
+  | "approve"
+  | "cancel"
+  | "execute"
+  | "expire"
+  | "withdraw_sol";
+
 export interface Guardian {
   address: string;
   label?: string;
@@ -122,8 +139,6 @@ export interface AiAssistantReply {
 export interface ApiErrorBody {
   error: { code: string; message: string; details?: unknown };
 }
-
-export type RecoveryAction = "initiate" | "approve" | "cancel" | "execute" | "expire";
 
 export interface RecoveryPlan {
   mode: Mode;

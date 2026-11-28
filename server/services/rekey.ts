@@ -195,10 +195,23 @@ export class RekeyService {
   async buildPlan(
     address: string,
     action: RecoveryAction,
-    args: { newOwner?: string; nonce?: number; actor?: string },
+    args: {
+      newOwner?: string;
+      nonce?: number;
+      actor?: string;
+      guardians?: string[];
+      threshold?: number;
+      delaySeconds?: number;
+      amount?: number;
+      recipient?: string;
+    },
   ): Promise<RecoveryPlan> {
-    const bundle = await this.loadWallet(address);
-    const { config, walletConfigPda } = bundle;
+    // AR-03: `initialize_wallet` targets a wallet that does not exist yet, so
+    // there is nothing to look up. Every other action reads the live config.
+    const needsExistingWallet = action !== "initialize_wallet";
+    const bundle = needsExistingWallet ? await this.loadWallet(address) : null;
+    const config = bundle?.config;
+    const walletConfigPda = bundle?.walletConfigPda;
     const now = Math.floor(Date.now() / 1000);
     const warnings: string[] = [];
 
@@ -219,7 +232,197 @@ export class RekeyService {
       advisoryOnly: true as const,
     };
 
+    // Every action other than `initialize_wallet` operates on an existing
+    // wallet, so the config and PDA are guaranteed at this point.
+    if (action !== "initialize_wallet" && (!config || !walletConfigPda)) {
+      throw new RekeyError(
+        "wallet_not_found",
+        "No ReKey wallet is configured for this address.",
+        404,
+      );
+    }
+    // TypeScript cannot carry the narrowing into each switch arm, so the
+    // non-null assertions are made explicit here.
+    const liveConfig = config!;
+    const liveWalletConfigPda = walletConfigPda!;
+    const liveBundle = bundle!;
+
     switch (action) {
+      case "initialize_wallet": {
+        // AR-03: the program supports initializing a wallet; the contract's
+        // action enum omitted it, so the action was unreachable through the API.
+        // The owner signs and pays for the account, so the actor IS the owner
+        // and the wallet does not exist yet - there is nothing to look up.
+        if (!args.guardians || !Array.isArray(args.guardians) || args.guardians.length === 0) {
+          throw new RekeyError(
+            "missing_argument",
+            "guardians is required to initialize a wallet.",
+            400,
+          );
+        }
+        if (args.threshold === undefined || !Number.isInteger(args.threshold)) {
+          throw new RekeyError("missing_argument", "threshold is required.", 400);
+        }
+        if (args.delaySeconds === undefined || !Number.isInteger(args.delaySeconds)) {
+          throw new RekeyError("missing_argument", "delaySeconds is required.", 400);
+        }
+        const guardians: PublicKey[] = [];
+        for (const g of args.guardians) {
+          try {
+            guardians.push(new PublicKey(g));
+          } catch {
+            throw new RekeyError("invalid_address", `Guardian ${g} is not a valid address.`, 400);
+          }
+        }
+        if (guardians.length !== new Set(guardians.map((g) => g.toBase58())).size) {
+          throw new RekeyError("duplicate_guardian", "Guardians must be distinct.", 400);
+        }
+        if (args.threshold < 1 || args.threshold > guardians.length) {
+          throw new RekeyError(
+            "invalid_threshold",
+            "threshold must be between 1 and the number of guardians.",
+            400,
+          );
+        }
+        if (guardians.some((g) => g.toBase58() === actor)) {
+          throw new RekeyError(
+            "owner_as_guardian",
+            "The owner cannot also be a guardian.",
+            400,
+          );
+        }
+        const walletConfigPda = deriveWalletConfigPdaSync(new PublicKey(actor))[0];
+        const vaultPda = deriveVaultPda(walletConfigPda)[0];
+        warnings.push(
+          "Initializing a wallet creates two accounts and transfers SOL to the vault. The owner must pay.",
+        );
+        return {
+          ...base,
+          advisoryOnly: true as const,
+          accounts: {
+            walletConfig: walletConfigPda.toBase58(),
+            vault: vaultPda.toBase58(),
+            owner: actor,
+          },
+          args: {
+            guardians: guardians.map((g) => g.toBase58()),
+            threshold: args.threshold,
+            delaySeconds: args.delaySeconds,
+          },
+          description: `Initialize the ReKey wallet owned by ${actor}`,
+          requiresSignatureFrom: actor,
+          warnings,
+          advisoryWarnings: warnings,
+        };
+      }
+
+      case "update_recovery_policy": {
+        // AR-03: the program supports updating the guardian policy; the
+        // contract's action enum omitted it.
+        if (!args.guardians || !Array.isArray(args.guardians) || args.guardians.length === 0) {
+          throw new RekeyError(
+            "missing_argument",
+            "guardians is required to update the policy.",
+            400,
+          );
+        }
+        if (args.threshold === undefined || !Number.isInteger(args.threshold)) {
+          throw new RekeyError("missing_argument", "threshold is required.", 400);
+        }
+        if (args.delaySeconds === undefined || !Number.isInteger(args.delaySeconds)) {
+          throw new RekeyError("missing_argument", "delaySeconds is required.", 400);
+        }
+        const guardians: PublicKey[] = [];
+        for (const g of args.guardians) {
+          try {
+            guardians.push(new PublicKey(g));
+          } catch {
+            throw new RekeyError("invalid_address", `Guardian ${g} is not a valid address.`, 400);
+          }
+        }
+        if (guardians.length !== new Set(guardians.map((g) => g.toBase58())).size) {
+          throw new RekeyError("duplicate_guardian", "Guardians must be distinct.", 400);
+        }
+        if (args.threshold < 1 || args.threshold > guardians.length) {
+          throw new RekeyError(
+            "invalid_threshold",
+            "threshold must be between 1 and the number of guardians.",
+            400,
+          );
+        }
+        if (guardians.some((g) => g.toBase58() === liveConfig.owner.toBase58())) {
+          throw new RekeyError(
+            "owner_as_guardian",
+            "The owner cannot also be a guardian.",
+            400,
+          );
+        }
+        if (actor !== liveConfig.owner.toBase58()) {
+          throw new RekeyError(
+            "unauthorized",
+            "Only the wallet owner can update the recovery policy.",
+            409,
+          );
+        }
+        warnings.push(
+          "Changing the policy increments the policy version and invalidates every pending recovery request.",
+        );
+        return {
+          ...base,
+          advisoryOnly: true as const,
+          accounts: {
+            walletConfig: liveWalletConfigPda.toBase58(),
+            owner: actor,
+          },
+          args: {
+            guardians: guardians.map((g) => g.toBase58()),
+            threshold: args.threshold,
+            delaySeconds: args.delaySeconds,
+          },
+          description: "Update the guardian set, threshold and recovery delay",
+          requiresSignatureFrom: actor,
+          warnings,
+          advisoryWarnings: warnings,
+        };
+      }
+
+      case "withdraw_sol": {
+        // AR-03: the program supports an owner-authorised SOL withdrawal.
+        if (args.amount === undefined || !Number.isInteger(args.amount) || args.amount <= 0) {
+          throw new RekeyError(
+            "missing_argument",
+            "amount is required and must be a positive integer.",
+            400,
+          );
+        }
+        if (actor !== liveConfig.owner.toBase58()) {
+          throw new RekeyError(
+            "unauthorized",
+            "Only the wallet owner can withdraw from the vault.",
+            409,
+          );
+        }
+        const vaultPda = deriveVaultPda(liveWalletConfigPda)[0];
+        warnings.push(
+          "The program preserves the vault rent floor, so the withdrawal may be slightly less than requested.",
+        );
+        return {
+          ...base,
+          advisoryOnly: true as const,
+          accounts: {
+            walletConfig: liveWalletConfigPda.toBase58(),
+            vault: vaultPda.toBase58(),
+            owner: actor,
+            recipient: args.recipient ?? actor,
+          },
+          args: { amount: args.amount, recipient: args.recipient ?? actor },
+          description: `Withdraw ${args.amount} lamports from the vault to ${args.recipient ?? actor}`,
+          requiresSignatureFrom: actor,
+          warnings,
+          advisoryWarnings: warnings,
+        };
+      }
+
       case "initiate": {
         if (!args.newOwner) {
           throw new RekeyError(
@@ -234,14 +437,14 @@ export class RekeyService {
         } catch {
           throw new RekeyError("invalid_address", "newOwner is not a valid address.", 400);
         }
-        if (newOwner.equals(config.owner)) {
+        if (newOwner.equals(liveConfig.owner)) {
           throw new RekeyError("same_owner", "The new owner matches the current owner.", 409);
         }
-        if (newOwner.equals(config.owner)) {
+        if (newOwner.equals(liveConfig.owner)) {
           throw new RekeyError("same_owner", "The new owner matches the current owner.", 409);
         }
-        const requestPda = deriveRecoveryRequestPda(walletConfigPda, config.nextNonce)[0];
-        if (!config.guardians.some((g) => g.toBase58() === actor)) {
+        const requestPda = deriveRecoveryRequestPda(liveWalletConfigPda, liveConfig.nextNonce)[0];
+        if (!liveConfig.guardians.some((g) => g.toBase58() === actor)) {
           throw new RekeyError(
             "unauthorized",
             "Only a registered guardian can initiate a recovery request.",
@@ -249,16 +452,16 @@ export class RekeyService {
           );
         }
         warnings.push(
-          `The request will be bound to policy version ${config.policyVersion}. Changing the policy invalidates it.`,
+          `The request will be bound to policy version ${liveConfig.policyVersion}. Changing the policy invalidates it.`,
         );
         warnings.push(
-          `Recovery will not be executable until ${config.delaySeconds} seconds after creation.`,
+          `Recovery will not be executable until ${liveConfig.delaySeconds} seconds after creation.`,
         );
         return {
           ...base,
           advisoryOnly: true as const,
           accounts: {
-            walletConfig: walletConfigPda.toBase58(),
+            walletConfig: liveWalletConfigPda.toBase58(),
             recoveryRequest: requestPda.toBase58(),
             initiator: actor,
           },
@@ -275,7 +478,7 @@ export class RekeyService {
         if (nonce === undefined || !Number.isInteger(nonce)) {
           throw new RekeyError("missing_argument", "nonce is required.", 400);
         }
-        const request = bundle.requests.find((r) => r.nonce === nonce);
+        const request = liveBundle.requests.find((r) => r.nonce === nonce);
         if (!request) {
           throw new RekeyError("request_not_found", "No such recovery request.", 404);
         }
@@ -286,7 +489,7 @@ export class RekeyService {
             409,
           );
         }
-        if (request.policyVersion !== config.policyVersion) {
+        if (request.policyVersion !== liveConfig.policyVersion) {
           throw new RekeyError(
             "stale_policy",
             "This request was created under an older guardian policy.",
@@ -300,21 +503,21 @@ export class RekeyService {
             409,
           );
         }
-        if (!config.guardians.some((g) => g.toBase58() === actor)) {
+        if (!liveConfig.guardians.some((g) => g.toBase58() === actor)) {
           throw new RekeyError(
             "unauthorized",
             "Only a registered guardian can approve a recovery request.",
             409,
           );
         }
-        if (request.approvals.length >= config.threshold) {
+        if (request.approvals.length >= liveConfig.threshold) {
           warnings.push("The approval threshold has already been reached.");
         }
         return {
           ...base,
           advisoryOnly: true as const,
           accounts: {
-            walletConfig: walletConfigPda.toBase58(),
+            walletConfig: liveWalletConfigPda.toBase58(),
             recoveryRequest: request.request,
             guardian: actor,
           },
@@ -331,7 +534,7 @@ export class RekeyService {
         if (nonce === undefined || !Number.isInteger(nonce)) {
           throw new RekeyError("missing_argument", "nonce is required.", 400);
         }
-        const request = bundle.requests.find((r) => r.nonce === nonce);
+        const request = liveBundle.requests.find((r) => r.nonce === nonce);
         if (!request) {
           throw new RekeyError("request_not_found", "No such recovery request.", 404);
         }
@@ -349,7 +552,7 @@ export class RekeyService {
             409,
           );
         }
-        if (config.owner.toBase58() !== actor) {
+        if (liveConfig.owner.toBase58() !== actor) {
           throw new RekeyError(
             "unauthorized",
             "Only the current wallet owner can cancel a recovery request.",
@@ -360,7 +563,7 @@ export class RekeyService {
           ...base,
           advisoryOnly: true as const,
           accounts: {
-            walletConfig: walletConfigPda.toBase58(),
+            walletConfig: liveWalletConfigPda.toBase58(),
             recoveryRequest: request.request,
             owner: actor,
           },
@@ -377,7 +580,7 @@ export class RekeyService {
         if (nonce === undefined || !Number.isInteger(nonce)) {
           throw new RekeyError("missing_argument", "nonce is required.", 400);
         }
-        const request = bundle.requests.find((r) => r.nonce === nonce);
+        const request = liveBundle.requests.find((r) => r.nonce === nonce);
         if (!request) {
           throw new RekeyError("request_not_found", "No such recovery request.", 404);
         }
@@ -388,7 +591,7 @@ export class RekeyService {
             409,
           );
         }
-        if (request.policyVersion !== config.policyVersion) {
+        if (request.policyVersion !== liveConfig.policyVersion) {
           throw new RekeyError(
             "stale_policy",
             "This request was created under an older guardian policy.",
@@ -404,7 +607,7 @@ export class RekeyService {
           ...base,
           advisoryOnly: true as const,
           accounts: {
-            walletConfig: walletConfigPda.toBase58(),
+            walletConfig: liveWalletConfigPda.toBase58(),
             recoveryRequest: request.request,
           },
           args: { nonce },
@@ -420,7 +623,7 @@ export class RekeyService {
         if (nonce === undefined || !Number.isInteger(nonce)) {
           throw new RekeyError("missing_argument", "nonce is required.", 400);
         }
-        const request = bundle.requests.find((r) => r.nonce === nonce);
+        const request = liveBundle.requests.find((r) => r.nonce === nonce);
         if (!request) {
           throw new RekeyError("request_not_found", "No such recovery request.", 404);
         }
@@ -442,7 +645,7 @@ export class RekeyService {
           ...base,
           advisoryOnly: true as const,
           accounts: {
-            walletConfig: walletConfigPda.toBase58(),
+            walletConfig: liveWalletConfigPda.toBase58(),
             recoveryRequest: request.request,
           },
           args: { nonce },

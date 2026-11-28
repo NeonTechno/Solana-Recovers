@@ -240,6 +240,11 @@ export async function buildServer(options: BuildOptions = {}): Promise<FastifyIn
       newOwner?: string;
       nonce?: number;
       actor?: string;
+      guardians?: string[];
+      threshold?: number;
+      delaySeconds?: number;
+      amount?: number;
+      recipient?: string;
     } | null;
 
     // AR-02: `wallet` (or the legacy `address`) is the wallet LOOKUP KEY — the
@@ -254,6 +259,11 @@ export async function buildServer(options: BuildOptions = {}): Promise<FastifyIn
       newOwner: body.newOwner,
       nonce: body.nonce,
       actor: body.actor,
+      guardians: body.guardians,
+      threshold: body.threshold,
+      delaySeconds: body.delaySeconds,
+      amount: body.amount,
+      recipient: body.recipient,
     });
     return reply.send(plan);
   });
@@ -294,12 +304,17 @@ function normalizeIntent(value: unknown): AiIntent {
 }
 
 function normalizeAction(value: unknown): RecoveryAction {
+  // AR-03: the three instructions the contract previously omitted are now
+  // reachable through the API and the MCP Gateway.
   if (
+    value === "initialize_wallet" ||
+    value === "update_recovery_policy" ||
     value === "initiate" ||
     value === "approve" ||
     value === "cancel" ||
     value === "execute" ||
-    value === "expire"
+    value === "expire" ||
+    value === "withdraw_sol"
   ) {
     return value;
   }

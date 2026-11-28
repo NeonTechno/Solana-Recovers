@@ -416,3 +416,153 @@ test("the API survives an offline RPC for the health route", async () => {
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().rpcReachable, false);
 });
+
+
+test("AR-03: initialize_wallet is reachable through the plan endpoint", async () => {
+  const { app: server } = await makeApp();
+  const res = await server.inject({
+    method: "POST",
+    url: "/api/recovery/plan",
+    payload: {
+      wallet: OWNER.toBase58(),
+      action: "initialize_wallet",
+      actor: OWNER.toBase58(),
+      guardians: [GUARDIAN_A.toBase58(), GUARDIAN_B.toBase58()],
+      threshold: 2,
+      delaySeconds: 60,
+    },
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.action, "initialize_wallet");
+  assert.equal(body.advisoryOnly, true);
+  assert.equal(body.requiresSignatureFrom, OWNER.toBase58());
+  assert.ok(body.accounts.walletConfig, "the wallet config PDA must be present");
+  assert.ok(body.accounts.vault, "the vault PDA must be present");
+  assert.equal(body.args.threshold, 2);
+  await server.close();
+});
+
+test("AR-03: initialize_wallet rejects an invalid threshold", async () => {
+  const { app: server } = await makeApp();
+  const res = await server.inject({
+    method: "POST",
+    url: "/api/recovery/plan",
+    payload: {
+      wallet: OWNER.toBase58(),
+      action: "initialize_wallet",
+      actor: OWNER.toBase58(),
+      guardians: [GUARDIAN_A.toBase58()],
+      threshold: 5,
+      delaySeconds: 60,
+    },
+  });
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.json().error.code, "invalid_threshold");
+  await server.close();
+});
+
+test("AR-03: update_recovery_policy is reachable and requires the owner", async () => {
+  const { app: server, state } = await makeApp();
+  installWallet(state, {
+    initialOwner: OWNER,
+    guardians: [GUARDIAN_A, GUARDIAN_B],
+    threshold: 2,
+    delaySeconds: 7 * 24 * 60 * 60,
+    nextNonce: 0,
+  });
+  const forbidden = await server.inject({
+    method: "POST",
+    url: "/api/recovery/plan",
+    payload: {
+      wallet: OWNER.toBase58(),
+      action: "update_recovery_policy",
+      actor: GUARDIAN_A.toBase58(),
+      guardians: [GUARDIAN_A.toBase58(), GUARDIAN_B.toBase58()],
+      threshold: 2,
+      delaySeconds: 120,
+    },
+  });
+  assert.equal(forbidden.statusCode, 409);
+  assert.equal(forbidden.json().error.code, "unauthorized");
+
+  const allowed = await server.inject({
+    method: "POST",
+    url: "/api/recovery/plan",
+    payload: {
+      wallet: OWNER.toBase58(),
+      action: "update_recovery_policy",
+      actor: OWNER.toBase58(),
+      guardians: [GUARDIAN_A.toBase58(), GUARDIAN_B.toBase58()],
+      threshold: 2,
+      delaySeconds: 120,
+    },
+  });
+  assert.equal(allowed.statusCode, 200);
+  assert.equal(allowed.json().action, "update_recovery_policy");
+  await server.close();
+});
+
+test("AR-03: withdraw_sol is reachable and requires the owner", async () => {
+  const { app: server, state } = await makeApp();
+  installWallet(state, {
+    initialOwner: OWNER,
+    guardians: [GUARDIAN_A, GUARDIAN_B],
+    threshold: 2,
+    delaySeconds: 7 * 24 * 60 * 60,
+    nextNonce: 0,
+  });
+  const forbidden = await server.inject({
+    method: "POST",
+    url: "/api/recovery/plan",
+    payload: {
+      wallet: OWNER.toBase58(),
+      action: "withdraw_sol",
+      actor: GUARDIAN_A.toBase58(),
+      amount: 1_000_000,
+    },
+  });
+  assert.equal(forbidden.statusCode, 409);
+  assert.equal(forbidden.json().error.code, "unauthorized");
+
+  const allowed = await server.inject({
+    method: "POST",
+    url: "/api/recovery/plan",
+    payload: {
+      wallet: OWNER.toBase58(),
+      action: "withdraw_sol",
+      actor: OWNER.toBase58(),
+      amount: 1_000_000,
+    },
+  });
+  assert.equal(allowed.statusCode, 200);
+  assert.equal(allowed.json().action, "withdraw_sol");
+  assert.ok(allowed.json().accounts.vault, "the vault PDA must be present");
+  await server.close();
+});
+
+test("AR-03: every program instruction is now a reachable action", async () => {
+  const { app: server } = await makeApp();
+  const actions = [
+    "initialize_wallet",
+    "update_recovery_policy",
+    "initiate",
+    "approve",
+    "cancel",
+    "execute",
+    "expire",
+    "withdraw_sol",
+  ];
+  for (const action of actions) {
+    const res = await server.inject({
+      method: "POST",
+      url: "/api/recovery/plan",
+      payload: { wallet: OWNER.toBase58(), action },
+    });
+    // The action must be recognized: 400 with a DIFFERENT error code than
+    // `unknown_action` proves it reached the plan builder.
+    const code = res.json().error?.code;
+    assert.notEqual(code, "unknown_action", `${action} must be a known action`);
+  }
+  await server.close();
+});
