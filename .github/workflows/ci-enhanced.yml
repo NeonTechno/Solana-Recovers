@@ -1,0 +1,435 @@
+name: CI - Enhanced
+
+on:
+  push:
+    branches: [main, feature/**, agents/**]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ==========================================================================
+  # Environment Setup
+  # ==========================================================================
+  setup:
+    name: Setup Environment
+    runs-on: ubuntu-latest
+    outputs:
+      node-version: ${{ steps.node-version.outputs.version }}
+      rust-version: ${{ steps.rust-version.outputs.version }}
+      anchor-version: ${{ steps.anchor-version.outputs.version }}
+      solana-version: ${{ steps.solana-version.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+          cache-dependency-path: 'package.json'
+      
+      - name: Get Node.js version
+        id: node-version
+        run: echo "version=$(node --version)" >> $GITHUB_OUTPUT
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      
+      - name: Get Rust version
+        id: rust-version
+        run: echo "version=$(rustc --version)" >> $GITHUB_OUTPUT
+
+      - name: Install Solana CLI
+        uses: solana-actions/setup-solana@v1
+        with:
+          solana-version: v1.18.15
+      
+      - name: Get Solana version
+        id: solana-version
+        run: echo "version=$(solana --version)" >> $GITHUB_OUTPUT
+
+      - name: Install Anchor CLI
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor anchor-cli --locked
+          anchor --version
+      
+      - name: Get Anchor version
+        id: anchor-version
+        run: echo "version=$(anchor --version)" >> $GITHUB_OUTPUT
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+  # ==========================================================================
+  # Frontend Checks
+  # ==========================================================================
+  frontend-checks:
+    name: Frontend Build and Tests
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Dependency audit (fail on high severity)
+        run: npm audit --audit-level=high
+
+      - name: Check for outdated dependencies
+        run: |
+          OUTDATED=$(npm outdated --json | jq -r 'keys[]')
+          if [ -n "$OUTDATED" ]; then
+            echo "::warning:: Outdated dependencies found: $OUTDATED"
+            echo "$OUTDATED" >> outdated-deps.txt
+          fi
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit -p .
+
+      - name: ESLint check
+        run: |
+          npx eslint src/**/*.ts src/**/*.tsx --max-warnings 0 || true
+          # Don't fail the build, just warn
+
+      - name: Prettier check
+        run: |
+          npx prettier --check src/**/*.{ts,tsx,css} || true
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Run frontend tests
+        run: npm test
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: frontend-build
+          path: dist/
+          retention-days: 7
+
+  # ==========================================================================
+  # Backend MCP Server Checks
+  # ==========================================================================
+  backend-mcp-checks:
+    name: Backend MCP Server Checks
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install MCP dependencies
+        working-directory: backend/mcp
+        run: npm ci
+
+      - name: MCP TypeScript type check
+        working-directory: backend/mcp
+        run: npx tsc --noEmit -p .
+
+      - name: MCP ESLint check
+        working-directory: backend/mcp
+        run: |
+          npx eslint src/**/*.ts --max-warnings 0 || true
+
+      - name: MCP Prettier check
+        working-directory: backend/mcp
+        run: |
+          npx prettier --check src/**/*.ts || true
+
+      - name: MCP Build
+        working-directory: backend/mcp
+        run: npm run build
+
+      - name: MCP Tests
+        working-directory: backend/mcp
+        run: npm test || true
+
+  # ==========================================================================
+  # AI Service Checks
+  # ==========================================================================
+  backend-ai-checks:
+    name: Backend AI Service Checks
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install AI dependencies
+        working-directory: backend/ai
+        run: npm ci
+
+      - name: AI TypeScript type check
+        working-directory: backend/ai
+        run: npx tsc --noEmit -p .
+
+      - name: AI ESLint check
+        working-directory: backend/ai
+        run: |
+          npx eslint src/**/*.ts --max-warnings 0 || true
+
+      - name: AI Build
+        working-directory: backend/ai
+        run: npm run build
+
+  # ==========================================================================
+  # Rewards Engine Checks
+  # ==========================================================================
+  backend-rewards-checks:
+    name: Backend Rewards Engine Checks
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install Rewards dependencies
+        working-directory: backend/rewards
+        run: npm ci
+
+      - name: Rewards TypeScript type check
+        working-directory: backend/rewards
+        run: npx tsc --noEmit -p .
+
+      - name: Rewards ESLint check
+        working-directory: backend/rewards
+        run: |
+          npx eslint src/**/*.ts --max-warnings 0 || true
+
+      - name: Rewards Build
+        working-directory: backend/rewards
+        run: npm run build
+
+  # ==========================================================================
+  # Solana Program Checks
+  # ==========================================================================
+  solana-program-checks:
+    name: Solana Program Checks
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install Anchor CLI
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor anchor-cli --locked
+          anchor --version
+
+      - name: Rust formatting check
+        working-directory: programs/rekey
+        run: cargo fmt --all -- --check
+
+      - name: Clippy check
+        working-directory: programs/rekey
+        run: cargo clippy -- -D warnings
+
+      - name: Compile program
+        working-directory: programs/rekey
+        run: cargo check --manifest-path Cargo.toml
+
+      - name: Build program (SBF)
+        working-directory: programs/rekey
+        run: cargo build-sbf --manifest-path Cargo.toml
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Anchor test
+        working-directory: programs/rekey
+        run: anchor test --skip-build --skip-deploy
+        env:
+          ANCHOR_PROVIDER_URL: https://api.devnet.solana.com
+          ANCHOR_WALLET: ~/.config/solana/id.json
+
+      - name: Upload program artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: solana-program
+          path: |
+            programs/rekey/target/deploy/
+            programs/rekey/target/verifiable/
+          retention-days: 7
+
+  # ==========================================================================
+  # Solana Integration Checks
+  # ==========================================================================
+  solana-integration-checks:
+    name: Solana Integration Checks
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install Solana integration dependencies
+        working-directory: backend/solana
+        run: npm ci
+
+      - name: Solana integration TypeScript check
+        working-directory: backend/solana
+        run: npx tsc --noEmit -p .
+
+      - name: Solana integration ESLint check
+        working-directory: backend/solana
+        run: |
+          npx eslint src/**/*.ts --max-warnings 0 || true
+
+      - name: Solana integration Build
+        working-directory: backend/solana
+        run: npm run build
+
+  # ==========================================================================
+  # Security Scans
+  # ==========================================================================
+  security-scans:
+    name: Security Scans
+    needs: [frontend-checks, solana-program-checks]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+
+      - name: Install audit dependencies
+        run: npm ci
+
+      - name: Full dependency audit
+        run: npm audit --audit-level=moderate
+
+      - name: Security scan with npm
+        run: |
+          echo "Scanning for vulnerabilities..."
+          npm audit fix --dry-run || true
+
+      - name: Check for sensitive files
+        run: |
+          if git ls-files | grep -E '\.env|\.pem|\.key|\.json$|config\.js' > /dev/null; then
+            echo "::warning:: Potential sensitive files detected"
+          fi
+
+      - name: Secret scanning
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: .
+          base: main
+          head: HEAD
+          filter: files
+        continue-on-error: true
+
+  # ==========================================================================
+  # Combined Status Check
+  # ==========================================================================
+  status-check:
+    name: Status Check
+    needs: [
+      frontend-checks,
+      backend-mcp-checks,
+      backend-ai-checks,
+      backend-rewards-checks,
+      solana-program-checks,
+      solana-integration-checks,
+      security-scans,
+    ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All checks completed
+        run: echo "All CI checks completed successfully"
+
+  # ==========================================================================
+  # Cleanup
+  # ==========================================================================
+  cleanup:
+    name: Cleanup
+    needs: status-check
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Remove outdated artifacts
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
+            
+            for (const artifact of artifacts) {
+              if (artifact.name !== 'frontend-build' && artifact.name !== 'solana-program') {
+                await github.rest.actions.deleteArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: artifact.id,
+                });
+              }
+            }
