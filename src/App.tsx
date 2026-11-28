@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
-  Activity, ArrowDownRight, ArrowUpRight, BadgeCheck, Bell, Check, ChevronRight,
-  CircleHelp, Clock3, Copy, Fingerprint, Github, KeyRound, LockKeyhole, LogOut,
-  Menu, Plus, RefreshCw, Shield, ShieldAlert, ShieldCheck, Users, Wallet,
+  Activity, ArrowUpRight, Award, BadgeCheck, Bell, Bot, Check, ChevronRight,
+  CircleHelp, Clock3, Copy, Fingerprint, KeyRound, LockKeyhole, LogOut,
+  Menu, Plus, Radio, RefreshCw, Shield, ShieldAlert, ShieldCheck, Users, Wallet,
   X, Zap
 } from "lucide-react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { formatSolAmount } from "./formatSolAmount";
 import { initialRecoveryDemo, recoveryDemoReducer } from "./recoveryDemo";
+import { getHealth } from "./api/client";
+import type { ApiHealth } from "./api/types";
+import { ActivityView, AssistantView, McpView, RecoveryView, RewardsView } from "./featureSurfaces";
+import { AsciiField } from "./AsciiField";
 
-type Tab = "overview" | "recovery" | "guardians" | "activity";
+type Tab = "overview" | "recovery" | "guardians" | "activity" | "assistant" | "mcp" | "rewards";
 type NoticeKind = "info" | "success" | "error";
 type Notice = { kind: NoticeKind; message: string };
 
@@ -22,6 +26,9 @@ function App() {
   const [tab, setTab] = useState<Tab>("overview");
   const [balance, setBalance] = useState<number | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
+  const [apiStatus, setApiStatus] = useState<"checking" | "online" | "offline">("checking");
+  const [health, setHealth] = useState<ApiHealth | null>(null);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [airdropLoading, setAirdropLoading] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [copied, setCopied] = useState(false);
@@ -48,6 +55,33 @@ function App() {
   }, [connection, publicKey]);
 
   useEffect(() => { void refreshBalance(); }, [refreshBalance]);
+
+  useEffect(() => {
+    setWalletAddress(publicKey?.toBase58() ?? null);
+  }, [publicKey]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const checkApi = () => {
+      void getHealth(controller.signal)
+        .then(result => {
+          setHealth(result);
+          setApiStatus(result.ok ? "online" : "offline");
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setHealth(null);
+            setApiStatus("offline");
+          }
+        });
+    };
+    checkApi();
+    const interval = window.setInterval(checkApi, 30_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(interval);
+    };
+  }, []);
 
   const closeMobileMenu = useCallback(() => {
     setMobileMenu(false);
@@ -154,14 +188,28 @@ function App() {
     { id: "overview" as Tab, label: "Overview", icon: Activity },
     { id: "recovery" as Tab, label: "Recovery", icon: RefreshCw },
     { id: "guardians" as Tab, label: "Guardians", icon: Users },
-    { id: "activity" as Tab, label: "Activity", icon: Clock3 }
+    { id: "activity" as Tab, label: "Activity", icon: Clock3 },
+    { id: "assistant" as Tab, label: "AI Assistant", icon: Bot },
+    { id: "mcp" as Tab, label: "MCP Connect", icon: Radio },
+    { id: "rewards" as Tab, label: "Lifeline Rewards", icon: Award },
   ], []);
+
+  const pageCopy: Record<Tab, { title: string; subtitle: string }> = {
+    overview: { title: "A recovery plan for your wallet.", subtitle: "Review who can approve recovery and when changes could take effect." },
+    recovery: { title: "Recovery center", subtitle: "Review API-backed recovery requests and explore the clearly marked demo." },
+    guardians: { title: "Your guardians", subtitle: "The people you trust to help you recover access." },
+    activity: { title: "Activity log", subtitle: "A live, read-only view of recovery program events." },
+    assistant: { title: "AI Security Assistant", subtitle: "Ask questions about recovery. Advice never authorizes an action." },
+    mcp: { title: "MCP Connect", subtitle: "Give an agent public security context through read-only tools." },
+    rewards: { title: "Lifeline Rewards", subtitle: "See your deterministic resilience score and recovery milestones." },
+  };
 
   return (
     <div className="app-shell">
+      <AsciiField />
       <aside ref={mobileSidebarRef} id="primary-sidebar" aria-label="Primary navigation" className={`sidebar ${mobileMenu ? "sidebar-open" : ""}`}>
         <div className="brand">
-          <div className="brand-mark"><ShieldCheck size={21} /></div>
+          <div className="brand-mark"><img src="/rekey-logo.jpg" alt="" width="40" height="40" /></div>
           <div><strong>rekey<span>.</span></strong><small>RECOVERY PROTOCOL</small></div>
           <button className="mobile-close icon-button" type="button" onClick={closeMobileMenu} aria-label="Close primary navigation"><X size={18}/></button>
         </div>
@@ -182,7 +230,7 @@ function App() {
             <p>Guardian approval is limited to the recovery request; it does not sign wallet transactions.</p>
             <a href="https://github.com/NeonTechno/Solana-Recovers" target="_blank" rel="noreferrer">Review the code <ChevronRight size={13}/></a>
           </div>
-          <div className="sidebar-footer"><span className="footer-dot"/> Prototype environment <span>v0.1.0</span></div>
+        <div className="sidebar-footer"><span className="footer-dot"/> Prototype environment <span>v0.1.0</span></div>
         </div>
       </aside>
 
@@ -195,7 +243,7 @@ function App() {
             <div className="breadcrumb">Workspace <ChevronRight size={14}/> <span>{navItems.find(n => n.id === tab)?.label}</span></div>
           </div>
           <div className="topbar-right">
-            <div className="top-status"><span className="pulse-dot"/> Devnet connected</div>
+            <div className={`top-status api-status api-${apiStatus}`} role="status" aria-live="polite"><span className="pulse-dot"/> {apiStatus === "checking" ? "Checking API" : apiStatus === "offline" ? "API offline · demo ready" : health?.rpcReachable ? `${health.cluster} API live` : "API live · RPC offline"}</div>
             <div className="notification-wrap">
               <button ref={notificationsButtonRef} className="icon-button notification-button" type="button" aria-label="Notifications" aria-expanded={notificationsOpen} aria-controls="notifications-panel" onClick={() => setNotificationsOpen(open => !open)}><Bell size={18}/></button>
               {notificationsOpen && <section id="notifications-panel" className="notification-panel" aria-label="Notifications" role="region">
@@ -211,13 +259,14 @@ function App() {
           <div className="page-heading">
             <div>
               <div className="eyebrow"><span className="eyebrow-line"/> NON-CUSTODIAL WALLET SECURITY</div>
-              <h1>{tab === "overview" ? "A recovery plan for your wallet." : tab === "recovery" ? "Recovery center" : tab === "guardians" ? "Your guardians" : "Activity log"}</h1>
-              <p>{tab === "overview" ? "Review who can approve recovery and when changes could take effect." : tab === "recovery" ? "Review and test your wallet recovery process." : tab === "guardians" ? "The people you trust to help you recover access." : "A transparent view of your recovery activity."}</p>
+              <h1>{pageCopy[tab].title}</h1>
+              <p>{pageCopy[tab].subtitle}</p>
             </div>
-            <div className="heading-actions"><span className="prototype-chip"><span/> PROTOTYPE</span></div>
+            <div className="heading-actions"><span className="prototype-chip"><span/> {apiStatus === "online" ? "API CONNECTED" : "DEMO AVAILABLE"}</span></div>
           </div>
 
-          <div className="prototype-warning" role="note"><ShieldAlert size={17}/><div><strong>Prototype notice</strong><span>Wallet connection and Devnet balance are live. Recovery and guardian actions below are currently simulated in this browser — no wallet authority or assets are being changed.</span></div></div>
+          <div className="prototype-warning" role="note"><ShieldAlert size={17}/><div><strong>Live data, clear boundaries</strong><span>Wallet connection and Devnet balance use Solana RPC. API reads are labelled live; the prototype sandbox is simulated. No passkey/WebAuthn support is implemented.</span></div></div>
+          {apiStatus === "offline" && <div className="api-offline-banner" role="status"><CircleHelp size={16} aria-hidden="true" /><span>The ReKey API is offline. Your wallet and Devnet balance remain available; demo recovery has no chain effect.</span><button className="text-action" type="button" onClick={() => { setApiStatus("checking"); void getHealth().then(result => { setHealth(result); setApiStatus(result.ok ? "online" : "offline"); }).catch(() => setApiStatus("offline")); }}>Retry connection</button></div>}
 
           {notice && <div className={`notice-banner notice-${notice.kind}`} role={notice.kind === "error" ? "alert" : "status"} aria-live={notice.kind === "error" ? "assertive" : "polite"}><span>{notice.message}</span><button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notification"><X size={15}/></button></div>}
 
@@ -295,21 +344,25 @@ function App() {
             </section>
           </>}
 
-          {tab === "recovery" && <section className="panel workspace-panel">
-            <div className="panel-heading"><div><span className="section-kicker">SOCIAL RECOVERY · DEMO</span><h2>Recovery request</h2></div><span className={`state-pill state-${recoveryState}`} role="status">{thresholdMet ? "THRESHOLD MET" : recoveryState.toUpperCase()}</span></div>
-            <div className="recovery-intro"><div className="large-feature-icon"><RefreshCw size={25}/></div><div><h3>Recover access with trusted people</h3><p>In the intended flow, the Solana program verifies each step. This preview demonstrates the sequence without submitting transactions.</p></div></div>
-            <div className="flow-steps">
-              <div className={`flow-step ${recoveryStarted ? "done" : recoveryState === "idle" ? "active" : ""}`}><span>1</span><div><strong>Request initiated</strong><small>Demo only; no wallet authority has changed</small></div>{recoveryStarted && <Check size={17}/>}</div>
-              <div className={`flow-step ${thresholdMet ? "done" : recoveryState === "pending" && approvals.length > 0 ? "active" : ""}`}><span>2</span><div><strong>Guardian approvals</strong><small>{approvals.length} of 2 required approvals</small></div>{thresholdMet && <Check size={17}/>}</div>
-              <div className={`flow-step ${thresholdMet ? "active" : ""}`}><span>3</span><div><strong>Timelock</strong><small>Would start after approval; execution is not simulated</small></div></div>
-            </div>
-            {recoveryState === "idle" || recoveryState === "cancelled" ? <button className="primary-button" type="button" onClick={startRecoveryDemo}><RefreshCw size={16}/> Start demo recovery</button> : <div className="approval-box">
-              <strong>Guardian approval simulation</strong><p>Choose two different demo guardians to meet the threshold.</p>
-              <div className="guardian-approval-grid">{["Guardian Alpha","Guardian Beta","Guardian Gamma"].map((g,i) => <button key={g} type="button" disabled={approvals.includes(g) || thresholdMet} aria-pressed={approvals.includes(g)} onClick={() => approveDemo(g)} className={`guardian-approve ${approvals.includes(g) ? "approved" : ""}`}><span className="guardian-avatar">{g.split(" ")[1][0]}</span><span>{g}<small>{approvals.includes(g) ? "Approved in demo" : "Awaiting approval"}</small></span>{approvals.includes(g) ? <Check size={17}/> : <Plus size={17}/>}</button>)}</div>
-              {thresholdMet && <div className="success-message" role="status" aria-live="polite"><Check size={17}/> Threshold met in simulation. The timelock and on-chain execution are not simulated.</div>}
-              {(recoveryState === "pending" || thresholdMet) && <button className="cancel-button" type="button" onClick={cancelDemo}><X size={15}/> Cancel demo request</button>}
-            </div>}
-          </section>}
+
+          {tab === "recovery" && <>
+            <RecoveryView address={walletAddress} health={health} apiStatus={apiStatus} onNavigate={selectTab} onWalletAddressChange={setWalletAddress} />
+            <section className="panel workspace-panel legacy-demo-panel">
+              <div className="panel-heading"><div><span className="section-kicker">LOCAL PROTOTYPE SANDBOX</span><h2>Guardian-flow simulation</h2></div><span className="mode-badge mode-simulated">SIMULATED · NO CHAIN CHANGES</span></div>
+              <div className="recovery-intro"><div className="large-feature-icon"><RefreshCw size={25}/></div><div><h3>Try the illustrated recovery sequence</h3><p>This existing local simulation demonstrates the flow only. It never submits transactions or changes wallet authority.</p></div></div>
+              <div className="flow-steps">
+                <div className={`flow-step ${recoveryStarted ? "done" : recoveryState === "idle" ? "active" : ""}`}><span>1</span><div><strong>Request initiated</strong><small>Demo only; no wallet authority has changed</small></div>{recoveryStarted && <Check size={17}/>}</div>
+                <div className={`flow-step ${thresholdMet ? "done" : recoveryState === "pending" && approvals.length > 0 ? "active" : ""}`}><span>2</span><div><strong>Guardian approvals</strong><small>{approvals.length} of 2 required approvals</small></div>{thresholdMet && <Check size={17}/>}</div>
+                <div className={`flow-step ${thresholdMet ? "active" : ""}`}><span>3</span><div><strong>Timelock</strong><small>Would start after approval; execution is not simulated</small></div></div>
+              </div>
+              {recoveryState === "idle" || recoveryState === "cancelled" ? <button className="primary-button" type="button" onClick={startRecoveryDemo}><RefreshCw size={16} aria-hidden="true"/> Start demo recovery</button> : <div className="approval-box">
+                <strong>Guardian approval simulation</strong><p>Choose two different demo guardians to meet the threshold.</p>
+                <div className="guardian-approval-grid">{["Guardian Alpha","Guardian Beta","Guardian Gamma"].map(g => <button key={g} type="button" disabled={approvals.includes(g) || thresholdMet} aria-pressed={approvals.includes(g)} onClick={() => approveDemo(g)} className={`guardian-approve ${approvals.includes(g) ? "approved" : ""}`}><span className="guardian-avatar">{g.split(" ")[1][0]}</span><span>{g}<small>{approvals.includes(g) ? "Approved in demo" : "Awaiting approval"}</small></span>{approvals.includes(g) ? <Check size={17} aria-hidden="true"/> : <Plus size={17} aria-hidden="true"/>}</button>)}</div>
+                {thresholdMet && <div className="success-message" role="status" aria-live="polite"><Check size={17} aria-hidden="true"/> Threshold met in simulation. The timelock and on-chain execution are not simulated.</div>}
+                {(recoveryState === "pending" || thresholdMet) && <button className="cancel-button" type="button" onClick={cancelDemo}><X size={15} aria-hidden="true"/> Cancel demo request</button>}
+              </div>}
+            </section>
+          </>}
 
           {tab === "guardians" && <section className="panel workspace-panel">
             <div className="panel-heading"><div><span className="section-kicker">RECOVERY CIRCLE · DEMO</span><h2>Guardian configuration</h2></div><span className="state-pill state-idle">2 OF 3 THRESHOLD</span></div>
@@ -319,10 +372,10 @@ function App() {
             <div className="notice-inline"><CircleHelp size={16}/> Guardian identities and approvals are illustrative. No contacts have been registered on-chain.</div>
           </section>}
 
-          {tab === "activity" && <section className="panel workspace-panel">
-            <div className="panel-heading"><div><span className="section-kicker">AUDIT TRAIL</span><h2>Recent activity</h2></div><Activity size={19} className="muted-icon"/></div>
-            <div className="empty-state"><div className="empty-icon"><Clock3 size={25}/></div><strong>No on-chain activity yet</strong><p>Once the recovery program is deployed, wallet configuration and recovery events will appear here.</p><button className="secondary-button" onClick={() => setTab("recovery")}>Try the recovery demo <ChevronRight size={15}/></button></div>
-          </section>}
+          {tab === "activity" && <ActivityView address={walletAddress} health={health} apiStatus={apiStatus} onNavigate={selectTab} onWalletAddressChange={setWalletAddress} />}
+          {tab === "assistant" && <AssistantView address={walletAddress} health={health} apiStatus={apiStatus} onNavigate={selectTab} onWalletAddressChange={setWalletAddress} />}
+          {tab === "mcp" && <McpView address={walletAddress} health={health} apiStatus={apiStatus} onNavigate={selectTab} onWalletAddressChange={setWalletAddress} />}
+          {tab === "rewards" && <RewardsView address={walletAddress} health={health} apiStatus={apiStatus} onNavigate={selectTab} onWalletAddressChange={setWalletAddress} />}
 
           <footer className="page-footer"><span>REKEY © 2026</span><span>BUILT FOR SOLANA <span className="footer-separator">·</span> DEV3PACK HACKATHON</span><a href="https://solana.com/developers" target="_blank" rel="noreferrer">Solana docs <ArrowUpRight size={12}/></a></footer>
         </div>
