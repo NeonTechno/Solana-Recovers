@@ -15,7 +15,7 @@ prototypes:
 | Layer | What exists | Evidence |
 |---|---|---|
 | **On-chain** | An Anchor program with a guardian social-recovery protocol: wallet config, vault, recovery requests, M-of-N approvals, a timelock, policy versioning, request expiry and owner-only SOL withdrawal. | 19/19 Rust unit tests, `cargo fmt --check` clean, **SBF artifact built in CI** and published as a downloadable release asset. |
-| **Application API** | A Fastify/TypeScript service implementing every endpoint in the frozen contract, reading real Devnet chain state through a contained Solana adapter. | 56/56 tests, strict typecheck clean, running live against Devnet RPC. |
+| **Application API** | A Fastify/TypeScript service implementing every endpoint in the frozen contract, reading real Devnet chain state through a contained Solana adapter. | 61/61 tests, strict typecheck clean, running live against Devnet RPC. |
 | **MCP Gateway** | An official-MCP-SDK server over **stdio** with **8 read-only tools**. Verified with a real JSON-RPC session. | All 8 tools listed and `rekey_get_health` returns live data. |
 | **AI assistant** | An OpenAI-compatible security assistant with a **complete graceful-degradation matrix** (missing key, invalid key, unreachable, 429, 5xx, malformed, schema-invalid). | 11 dedicated tests, one per failure mode. Every failure returns HTTP 200 with a deterministic local assessment. |
 | **Lifeline Rewards** | A **deterministic** resilience score (0–100, five bands, per-factor impact) and seven app-level rewards. | 11 tests, including determinism and band boundaries. The AI never computes the score. |
@@ -56,7 +56,7 @@ Build SBF artifact · Upload SBF artifact · Publish SBF artifact to a GitHub re
 
 CI run **46121696098** (`CI` on `agents/hermes-lead`) — **success**.
 CI run **46121702471** (`CI` on `feature/backend-mcp-ai`) — **success**, including the
-`server` job (dependency audit, strict typecheck, 56 tests).
+`server` job (dependency audit, strict typecheck, 61 tests).
 
 SBF artifact, downloaded and verified:
 ```
@@ -73,7 +73,7 @@ $ npx tsc --noEmit -p tsconfig.json
 exit 0
 
 $ node --experimental-strip-types --test test/*.test.ts
-# tests 56   # pass 56   # fail 0
+# tests 61   # pass 61   # fail 0
 
 $ npm audit --audit-level=high
 exit 0 — 4 moderate, 0 high, 0 critical
@@ -141,12 +141,13 @@ defects the other missed. All were fixed; the reconciliation table is in
 | SR-11 | Medium | `expire_recovery` emitted no event, so an indexer could never observe an expiry. | Added the `RecoveryExpired` event. |
 | — | Critical (lead) | The `WalletConfig` PDA seed was **circular**: it was proven against the account's own `initial_owner` field. | The seed is now proven against the owner signer, and the account must match on both `initial_owner` and the current `owner`. |
 
-### Architecture findings, all fixed (56 tests, was 53)
+### Architecture findings, all fixed (61 tests, was 53)
 
 | ID | Severity | Finding | Fix |
 |---|---|---|---|
 | AR-01 | High | **The server's program id did not match the program's `declare_id!`.** Every wallet read 404'd while `/api/health` reported "ok" — a health endpoint that cannot detect a non-existent program is not a health endpoint. | One source of truth for the id; `/api/health` now reports `programDeployed` and `ok` reflects RPC reachability. |
 | AR-02 | High | The plan endpoint's single `address` field had two incompatible roles (wallet lookup key vs required signer). Guardian approval was **unbuildable** through the API and a post-recovery owner was denied cancellation. | Split into `wallet` (lookup key) and `actor` (expected signer), plus a new `/resolve` endpoint. |
+| AR-03 | High | The contract's action enum omitted three instructions the program actually exposes — `initialize_wallet`, `update_recovery_policy` and `withdraw_sol` — making them **unreachable through both the API and the MCP Gateway**. | All three are now supported. `initialize_wallet` derives the PDAs from the owner and skips the wallet lookup (the wallet does not exist yet); the other two require the current owner to sign. The action enum now lists **all eight** program instructions. 5 new tests; **61** server tests (was 56). |
 | AR-04 | Medium | The API's mirrored rule checks were presented as HTTP 409 decisions, against the host clock rather than the chain clock. | Accepted as advisory **by design and now labelled**: every plan carries `advisoryOnly: true` and `advisoryWarnings`. Documented in `docs/architecture-review.md`. |
 
 ### Controls verified correct (not findings)
@@ -339,7 +340,7 @@ The frontend talks to the API at `http://localhost:8787` (see `src/api/client.ts
 |---|---|
 | Real Solana Devnet transactions where feasible | ⚠️ Program built and ready; **deploy blocked on funding** (§7). All reads verified against live Devnet RPC. |
 | Anchor program is the authority | ✅ No other layer signs, submits or decides authorization. |
-| Frontend and AI never independently authorize | ✅ Verified by grep (zero signing primitives) and by 56 server tests. |
+| Frontend and AI never independently authorize | ✅ Verified by grep (zero signing primitives) and by 61 server tests. |
 | MCP, AI, API and on-chain execution separated | ✅ Four separate layers, documented in `docs/system-architecture.md`. |
 | Simulated operations visibly separate from real ones | ✅ `mode` on every response; `SIMULATED · NO CHAIN CHANGES` badge; the plan carries `advisoryOnly: true`. |
 | Typed interfaces and reusable components | ✅ `shared/types.ts` is the single source of truth for both sides. |

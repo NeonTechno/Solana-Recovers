@@ -209,6 +209,25 @@ Response: `AiAssistantReply` (HTTP 200).
 returns a deterministic local assessment with `degraded: true` and HTTP 200.
 Only a malformed request body returns `400`.
 
+### The action enum
+
+`RecoveryAction` lists **every instruction the Anchor program exposes** (AR-03):
+
+| Action | Program instruction | Who signs |
+|---|---|---|
+| `initialize_wallet` | `initialize_wallet` | the owner (creates the wallet; there is nothing to look up yet) |
+| `update_recovery_policy` | `update_recovery_policy` | the current owner |
+| `initiate` | `initiate_recovery` | a registered guardian |
+| `approve` | `approve_recovery` | a registered guardian |
+| `cancel` | `cancel_recovery` | the current owner |
+| `execute` | `execute_recovery` | anyone (the program enforces the timelock and threshold) |
+| `expire` | `expire_recovery` | anyone (the program enforces the expiry) |
+| `withdraw_sol` | `withdraw_sol` | the current owner |
+
+Before v1.0.1 the enum omitted `initialize_wallet`, `update_recovery_policy`
+and `withdraw_sol`, which made three real program instructions unreachable
+through the API and the MCP Gateway.
+
 ### `POST /api/recovery/plan`
 Request:
 ```json
