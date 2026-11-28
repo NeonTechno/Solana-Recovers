@@ -1,5 +1,8 @@
 node_modules
 dist
+target/
+Cargo.lock
+*.tsbuildinfo
 .env
 .env.*
 !.env.example
