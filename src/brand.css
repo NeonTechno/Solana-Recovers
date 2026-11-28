@@ -212,6 +212,7 @@ button:not(:disabled):active {
 body {
   min-width: 320px;
   color: var(--foreground);
+  font-family: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   background-color: var(--bg);
   background-image: var(--gradient-bg);
   background-attachment: fixed;
@@ -352,6 +353,16 @@ body {
 .feature-surface > * {
   position: relative;
   z-index: 1;
+}
+
+.page-heading h1,
+.surface-heading h2,
+.dialog-heading h2,
+.score-copy h3,
+.panel-heading h3,
+.legacy-demo-panel h2,
+.legacy-demo-panel h3 {
+  font-family: "Space Grotesk", "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 .surface-heading {
@@ -2051,6 +2062,20 @@ a {
   background: #68e4f0;
 }
 
+.topbar .wallet-adapter-button,
+.connect-banner .wallet-adapter-button,
+.wallet-panel .wallet-adapter-button {
+  min-height: 42px;
+  color: #0b0d16;
+  background: var(--accent-cyan);
+}
+
+.topbar .wallet-adapter-button:hover,
+.connect-banner .wallet-adapter-button:hover,
+.wallet-panel .wallet-adapter-button:hover {
+  background: #68e4f0;
+}
+
 .stat-card,
 .panel,
 .connect-banner,
@@ -2192,6 +2217,17 @@ a {
     padding: 0 12px;
     white-space: nowrap;
     font-size: 12px;
+  }
+
+  .topbar .wallet-adapter-button {
+    min-width: 44px;
+    width: auto;
+    flex: 0 0 auto;
+    padding: 0 12px;
+    white-space: nowrap;
+    overflow-wrap: normal;
+    font-size: 12px;
+    line-height: 1;
   }
 }
 

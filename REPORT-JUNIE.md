@@ -1,8 +1,11 @@
 # ReKey Frontend Implementation Report
 
-**Date:** 2026-11-28  
-**Branch:** `feature/frontend-rekey-ui`  
-**Implementation commit:** `6c93e88eae2f23f6d95aa630b31a600b134d7d8b`  
+**Date:** 2026-11-28
+
+**Branch:** `feature/frontend-rekey-ui`
+
+**Implementation commit:** `6c93e88eae2f23f6d95aa630b31a600b134d7d8b`
+
 **Commit range:** `b7d6294365521d7922845af63b8a65b6aff4276f..6c93e88eae2f23f6d95aa630b31a600b134d7d8b`
 
 ## Implementation summary

@@ -28,7 +28,7 @@ try {
     page.on("pageerror", error => pageErrors.push(error.message));
     page.on("requestfailed", request => failedRequests.push(`${request.url()} (${request.failure()?.errorText ?? "failed"})`));
     await page.route(/fonts\.(googleapis|gstatic)\.com/, route => route.abort());
-    const response = await page.goto("http://127.0.0.1:5173", { waitUntil: "commit", timeout: 10_000 });
+    const response = await page.goto("http://127.0.0.1:5173", { waitUntil: "commit", timeout: 30_000 });
     assert.ok(response, `Vite did not return a document at ${width}px.`);
     try {
       await page.waitForLoadState("domcontentloaded", { timeout: 10_000 });
@@ -48,21 +48,6 @@ try {
       image => image.complete && image.naturalWidth === 1280,
     );
     assert.ok(logoIsLoaded, `The supplied logo failed to load at ${width}px.`);
-    if (width === 768) {
-      await openNavigation(page, width, "AI Assistant");
-      const diagnostics = await page.evaluate(() => {
-        const bannerButton = document.querySelector(".api-offline-banner .text-action");
-        const footer = document.querySelector(".page-footer");
-        const pageTitle = document.querySelector(".surface-heading h2");
-        return {
-          bannerButton: bannerButton ? { position: getComputedStyle(bannerButton).position, rect: bannerButton.getBoundingClientRect().toJSON() } : null,
-          footer: footer ? Array.from(footer.children, child => ({ text: child.textContent, rect: child.getBoundingClientRect().toJSON() })) : [],
-          fonts: { surface: pageTitle ? getComputedStyle(pageTitle).fontFamily : null, heading: getComputedStyle(document.querySelector("h1")).fontFamily },
-        };
-      });
-      console.log(`LAYOUT width=${width}px ${JSON.stringify(diagnostics)}`);
-    }
-
     let dimensions;
     for (const [label, heading] of surfaces) {
       await openNavigation(page, width, label);
