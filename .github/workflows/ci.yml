@@ -32,6 +32,9 @@ jobs:
   server:
     name: Application API, MCP and AI tests
     runs-on: ubuntu-latest
+    # The server package lives on feature/backend-mcp-ai. Skip this job on
+    # branches that do not contain it rather than failing the whole workflow.
+    if: ${{ hashFiles('server/package.json') != '' }}
     defaults:
       run:
         working-directory: server
@@ -49,7 +52,7 @@ jobs:
           key: server-npm-${{ hashFiles('server/package-lock.json') }}
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Dependency audit (fail on high severity)
         run: npm audit --audit-level=high
